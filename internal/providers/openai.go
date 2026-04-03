@@ -39,6 +39,12 @@ func isOpenAINativeEndpoint(apiBase string) bool {
 	lower := strings.ToLower(apiBase)
 	return strings.Contains(lower, "api.openai.com")
 }
+// isFireworksEndpoint returns true for Fireworks AI endpoints.
+// Fireworks requires stream=true for max_tokens > 4096.
+func (p *OpenAIProvider) isFireworksEndpoint() bool {
+	lower := strings.ToLower(p.apiBase)
+	return strings.Contains(lower, "fireworks.ai") || strings.Contains(lower, "fireworks")
+}
 
 func NewOpenAIProvider(name, apiKey, apiBase, defaultModel string) *OpenAIProvider {
 	if apiBase == "" {
@@ -404,15 +410,23 @@ func (p *OpenAIProvider) buildRequestBody(model string, req ChatRequest, stream 
 		}
 	}
 
-	// Merge options
-	capabilityModel := modelFamily(model)
-	if v, ok := req.Options[OptMaxTokens]; ok {
-		if strings.HasPrefix(capabilityModel, "gpt-5") || strings.HasPrefix(capabilityModel, "o1") || strings.HasPrefix(capabilityModel, "o3") || strings.HasPrefix(capabilityModel, "o4") {
-			body["max_completion_tokens"] = v
-		} else {
-			body["max_tokens"] = v
-		}
-	}
+// Merge options
+capabilityModel := modelFamily(model)
+if v, ok := req.Options[OptMaxTokens]; ok {
+// Fireworks requires stream=true for max_tokens > 4096
+// For non-streaming requests, clamp to 4096 to avoid 400 error
+if !stream && p.isFireworksEndpoint() {
+if maxTokens, isInt := v.(int); isInt && maxTokens > 4096 {
+v = 4096
+slog.Debug("max_tokens clamped to 4096 for Fireworks non-streaming request", "provider", p.name, "model", model)
+}
+}
+if strings.HasPrefix(capabilityModel, "gpt-5") || strings.HasPrefix(capabilityModel, "o1") || strings.HasPrefix(capabilityModel, "o3") || strings.HasPrefix(capabilityModel, "o4") {
+body["max_completion_tokens"] = v
+} else {
+body["max_tokens"] = v
+}
+}
 	if v, ok := req.Options[OptTemperature]; ok {
 		// Certain model families don't support custom temperature (locked to default).
 		// This is a model-level constraint, not provider-specific — applies to both OpenAI and Azure.
