@@ -25,4 +25,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git merge upstream/dev --ff-only
           git push origin dev
-          git push origin --tags
+          git push origin --tags || echo "tag push skipped (needs PAT with workflow scope)"
