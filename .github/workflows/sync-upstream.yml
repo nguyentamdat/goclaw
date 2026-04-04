@@ -20,7 +20,7 @@ jobs:
       - name: Sync upstream
         run: |
           git remote add upstream https://github.com/nextlevelbuilder/goclaw.git
-          git fetch upstream --tags
+          git fetch upstream --tags --force
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git merge upstream/dev --ff-only
