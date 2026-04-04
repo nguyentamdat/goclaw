@@ -10,19 +10,23 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: [dev, main]
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: dev
+          ref: ${{ matrix.branch }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Sync upstream
+      - name: Sync upstream ${{ matrix.branch }}
         run: |
           git remote add upstream https://github.com/nextlevelbuilder/goclaw.git
           git fetch upstream --tags --force
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git merge upstream/dev --ff-only
-          git push origin dev
+          git merge upstream/${{ matrix.branch }} --ff-only
+          git push origin ${{ matrix.branch }}
           git push origin --tags || echo "tag push skipped (needs PAT with workflow scope)"
