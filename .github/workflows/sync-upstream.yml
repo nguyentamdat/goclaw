@@ -19,7 +19,7 @@ jobs:
         with:
           ref: ${{ matrix.branch }}
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.SYNC_PAT }}
 
       - name: Sync upstream ${{ matrix.branch }}
         run: |
