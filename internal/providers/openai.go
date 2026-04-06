@@ -162,6 +162,17 @@ func (p *OpenAIProvider) resolveModel(model string) string {
 
 func (p *OpenAIProvider) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
 	model := p.resolveModel(req.Model)
+
+	// Auto-enable streaming for max_tokens > 4096
+	// Some OpenAI-compatible providers require stream=true for large max_tokens
+	if v, ok := req.Options[OptMaxTokens]; ok {
+		if maxTokens, isInt := v.(int); isInt && maxTokens > 4096 {
+			slog.Debug("auto-enabling stream for max_tokens > 4096",
+				"provider", p.name, "model", model, "max_tokens", maxTokens)
+			return p.ChatStream(ctx, req, nil)
+		}
+	}
+
 	body := p.buildRequestBody(model, req, false)
 
 	chatFn := p.chatRequestFn(ctx, body)
