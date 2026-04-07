@@ -124,12 +124,12 @@ func DiscoverTools(ctx context.Context, transportType, command string, args []st
 	if err != nil {
 		return nil, fmt.Errorf("create client: %w", err)
 	}
-	defer client.Close()
+	// Close in a goroutine to avoid blocking on cmd.Wait() when the
+	// child process doesn't exit promptly after pipe closure.
+	defer func() { go client.Close() }()
 
-	if transportType != "stdio" {
-		if err := client.Start(ctx); err != nil {
-			return nil, fmt.Errorf("start transport: %w", err)
-		}
+	if err := client.Start(ctx); err != nil {
+		return nil, fmt.Errorf("start transport: %w", err)
 	}
 
 	initReq := mcpgo.InitializeRequest{}
