@@ -15,9 +15,11 @@ import (
 
 // ModelInfo is a normalized model entry returned by the list-models endpoint.
 type ModelInfo struct {
-	ID        string                        `json:"id"`
-	Name      string                        `json:"name,omitempty"`
-	Reasoning *providers.ReasoningCapability `json:"reasoning,omitempty"`
+	ID              string                        `json:"id"`
+	Name            string                        `json:"name,omitempty"`
+	ContextLength   int                           `json:"context_length,omitempty"`
+	MaxOutputTokens int                           `json:"max_output_tokens,omitempty"`
+	Reasoning       *providers.ReasoningCapability `json:"reasoning,omitempty"`
 }
 
 type ProviderModelsResponse struct {
@@ -44,6 +46,7 @@ func (h *ProvidersHandler) handleListProviderModels(w http.ResponseWriter, r *ht
 	}
 
 	respond := func(models []ModelInfo) {
+		models = h.withModelCapabilities(models)
 		writeJSON(w, http.StatusOK, ProviderModelsResponse{
 			Models:            models,
 			ReasoningDefaults: reasoningDefaultsForModels(p.Settings, models),
@@ -149,6 +152,26 @@ func withReasoningCapabilities(models []ModelInfo) []ModelInfo {
 		next := model
 		next.Reasoning = providers.LookupReasoningCapability(model.ID)
 		result = append(result, next)
+	}
+	return result
+}
+
+// withModelCapabilities enriches models with context_length and max_output_tokens from the registry.
+func (h *ProvidersHandler) withModelCapabilities(models []ModelInfo) []ModelInfo {
+	if h.modelRegistry == nil {
+		return models
+	}
+	result := make([]ModelInfo, 0, len(models))
+	for _, m := range models {
+		if spec := h.modelRegistry.Lookup(m.ID); spec != nil {
+			if m.ContextLength == 0 {
+				m.ContextLength = spec.ContextLength
+			}
+			if m.MaxOutputTokens == 0 {
+				m.MaxOutputTokens = spec.MaxOutputTokens
+			}
+		}
+		result = append(result, m)
 	}
 	return result
 }

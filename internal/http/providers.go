@@ -19,6 +19,7 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/permissions"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
+	"github.com/nextlevelbuilder/goclaw/internal/models"
 	"github.com/nextlevelbuilder/goclaw/pkg/protocol"
 )
 
@@ -35,6 +36,7 @@ type ProvidersHandler struct {
 	sysConfigStore  store.SystemConfigStore
 	tracingStore    store.TracingStore   // optional: for provider-scoped pool activity
 	agents          store.AgentCRUDStore // optional: for provider pool activity agent lookup
+	modelRegistry   *models.Registry     // optional: for model capability enrichment
 }
 
 // NewProvidersHandler creates a handler for provider management endpoints.
@@ -57,6 +59,12 @@ func (h *ProvidersHandler) SetSystemConfigStore(s store.SystemConfigStore) {
 // Must be called before serving requests (not thread-safe).
 func (h *ProvidersHandler) SetMCPServerLookup(lookup providers.MCPServerLookup) {
 	h.mcpLookup = lookup
+}
+
+// SetModelRegistry sets the model capability registry for enriching model listings.
+// Must be called before serving requests (not thread-safe).
+func (h *ProvidersHandler) SetModelRegistry(r *models.Registry) {
+	h.modelRegistry = r
 }
 
 // SetAPIBaseFallback sets a function that returns config/env api_base by provider type.

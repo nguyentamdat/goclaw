@@ -19,6 +19,7 @@ import (
 	mcpbridge "github.com/nextlevelbuilder/goclaw/internal/mcp"
 	"github.com/nextlevelbuilder/goclaw/internal/media"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
+	"github.com/nextlevelbuilder/goclaw/internal/models"
 	"github.com/nextlevelbuilder/goclaw/internal/sandbox"
 	"github.com/nextlevelbuilder/goclaw/internal/skills"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
@@ -26,6 +27,7 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/tools"
 	"github.com/nextlevelbuilder/goclaw/internal/tracing"
 	"github.com/nextlevelbuilder/goclaw/pkg/protocol"
+	"time"
 )
 
 // wireExtras wires components that require PG stores:
@@ -50,7 +52,7 @@ func wireExtras(
 	appCfg *config.Config,
 	sandboxMgr sandbox.Manager,
 	redisClient any, // nil when built without -tags redis or when Redis is unconfigured
-) (*tools.ContextFileInterceptor, *mcpbridge.Pool, *media.Store, tools.PostTurnProcessor) {
+) (*tools.ContextFileInterceptor, *mcpbridge.Pool, *media.Store, tools.PostTurnProcessor, *models.Registry) {
 	// 1. Build cache instances (in-memory or Redis depending on build tags)
 	agentCtxCache, userCtxCache := makeCaches(redisClient)
 
@@ -129,9 +131,14 @@ func wireExtras(
 		skillAccessStore = sas
 	}
 
+	// 6a. Model registry: fetch model specs from OpenRouter for auto-detection
+	modelRegistry := models.NewRegistry(24 * time.Hour)
+	modelRegistry.StartBackgroundRefresh(context.Background())
+
 	resolver := agent.NewManagedResolver(agent.ResolverDeps{
 		AgentStore:             stores.Agents,
 		ProviderStore:          stores.Providers,
+		ModelRegistry:          modelRegistry,
 		ProviderReg:            providerReg,
 		Bus:                    msgBus,
 		Sessions:               sessStore,
@@ -530,7 +537,7 @@ func wireExtras(
 	})
 
 	slog.Info("resolver + interceptors + cache subscribers wired")
-	return contextFileInterceptor, mcpPool, mediaStore, postTurn
+	return contextFileInterceptor, mcpPool, mediaStore, postTurn, modelRegistry
 }
 
 // kgSettings holds KG extraction settings from the builtin_tools table.

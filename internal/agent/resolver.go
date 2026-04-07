@@ -21,6 +21,7 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/store"
 	"github.com/nextlevelbuilder/goclaw/internal/tools"
 	"github.com/nextlevelbuilder/goclaw/internal/tracing"
+	"github.com/nextlevelbuilder/goclaw/internal/models"
 )
 
 // ResolverDeps holds shared dependencies for the agent resolver.
@@ -101,6 +102,8 @@ type ResolverDeps struct {
 
 	// Global workspace root (GOCLAW_WORKSPACE)
 	Workspace string
+	// Model capability registry (OpenRouter-backed, optional)
+	ModelRegistry *models.Registry
 }
 
 // NewManagedResolver creates a ResolverFunc that builds Loops from DB agent data.
@@ -199,6 +202,21 @@ func NewManagedResolver(deps ResolverDeps) ResolverFunc {
 		}
 
 		contextWindow := ag.ContextWindow
+		maxTokens := ag.ParseMaxTokens()
+		if deps.ModelRegistry != nil && ag.Model != "" {
+			if spec := deps.ModelRegistry.Lookup(ag.Model); spec != nil {
+				if contextWindow <= 0 && spec.ContextLength > 0 {
+					contextWindow = spec.ContextLength
+					slog.Info("models.registry: auto-detected context_window",
+						"agent", agentKey, "model", ag.Model, "context_window", contextWindow)
+				}
+				if maxTokens <= 0 && spec.MaxOutputTokens > 0 {
+					maxTokens = spec.MaxOutputTokens
+					slog.Info("models.registry: auto-detected max_tokens",
+						"agent", agentKey, "model", ag.Model, "max_tokens", maxTokens)
+				}
+			}
+		}
 		if contextWindow <= 0 {
 			contextWindow = config.DefaultContextWindow
 		}
@@ -367,7 +385,7 @@ func NewManagedResolver(deps ResolverDeps) ResolverFunc {
 			Provider:               provider,
 			Model:                  ag.Model,
 			ContextWindow:          contextWindow,
-			MaxTokens:              ag.ParseMaxTokens(),
+			MaxTokens:              maxTokens,
 			MaxIterations:          maxIter,
 			Workspace:              workspace,
 			DataDir:                dataDir,
