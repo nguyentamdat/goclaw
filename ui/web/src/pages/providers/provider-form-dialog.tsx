@@ -28,6 +28,7 @@ import { DEFAULT_CODEX_OAUTH_ALIAS, PROVIDER_TYPES, suggestUniqueProviderAlias }
 import { OAuthSection } from "./provider-oauth-section";
 import { CLISection } from "./provider-cli-section";
 import { ACPSection } from "./provider-acp-section";
+import { ProviderLogo } from "@/components/shared/provider-logo";
 import { Loader2 } from "lucide-react";
 import { providerCreateSchema, type ProviderCreateFormData } from "@/schemas/provider.schema";
 
@@ -308,10 +309,13 @@ function ProviderTypeSelect({ value, hasClaudeCLI, alreadyAddedLabel, providerTy
               value={pt.value}
               disabled={pt.value === "claude_cli" && hasClaudeCLI}
             >
-              {pt.label}
-              {pt.value === "claude_cli" && hasClaudeCLI && (
-                <span className="ml-1 text-xs opacity-60">{alreadyAddedLabel}</span>
-              )}
+              <span className="flex items-center gap-2">
+                <ProviderLogo providerType={pt.value} size={14} />
+                {pt.label}
+                {pt.value === "claude_cli" && hasClaudeCLI && (
+                  <span className="ml-1 text-xs opacity-60">{alreadyAddedLabel}</span>
+                )}
+              </span>
             </SelectItem>
           ))}
         </SelectContent>

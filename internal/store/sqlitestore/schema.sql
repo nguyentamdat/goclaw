@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS agents (
     owner_id              VARCHAR(255) NOT NULL,
     provider              VARCHAR(50) NOT NULL DEFAULT 'openrouter',
     model                 VARCHAR(200) NOT NULL,
-    context_window        INT NOT NULL DEFAULT 200000,
+    context_window        INT NOT NULL DEFAULT 0,
     max_tool_iterations   INT NOT NULL DEFAULT 20,
     workspace             TEXT NOT NULL DEFAULT '.',
     restrict_to_workspace BOOLEAN NOT NULL DEFAULT 1,

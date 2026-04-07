@@ -1,11 +1,12 @@
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Cpu, Settings, Trash2 } from "lucide-react";
+import { ArrowLeft, Settings, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { PROVIDER_TYPES } from "@/constants/providers";
 import type { ProviderData } from "@/types/provider";
+import { ProviderLogo } from "@/components/shared/provider-logo";
 
 interface ProviderHeaderProps {
   provider: ProviderData;
@@ -33,7 +34,7 @@ export function ProviderHeader({ provider, onBack, onAdvanced, onDelete }: Provi
 
         {/* Provider icon */}
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary sm:h-12 sm:w-12">
-          <Cpu className="h-5 w-5 sm:h-6 sm:w-6" />
+          <ProviderLogo providerType={provider.provider_type} size={24} />
         </div>
 
         {/* Provider info */}

@@ -111,8 +111,14 @@ func fetchOpenAIModels(ctx context.Context, apiBase, apiKey string) ([]ModelInfo
 
 	var result struct {
 		Data []struct {
-			ID      string `json:"id"`
-			OwnedBy string `json:"owned_by"`
+			ID              string `json:"id"`
+			OwnedBy         string `json:"owned_by"`
+			ContextWindow   int    `json:"context_window"`
+			ContextLength   int    `json:"context_length"`
+			MaxOutputTokens int    `json:"max_output_tokens"`
+			TopProvider     struct {
+				MaxCompletionTokens *int `json:"max_completion_tokens"`
+			} `json:"top_provider"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -121,7 +127,21 @@ func fetchOpenAIModels(ctx context.Context, apiBase, apiKey string) ([]ModelInfo
 
 	models := make([]ModelInfo, 0, len(result.Data))
 	for _, m := range result.Data {
-		models = append(models, ModelInfo{ID: m.ID, Name: m.ID})
+		info := ModelInfo{ID: m.ID, Name: m.ID}
+		// Many OpenAI-compatible providers include context_length or context_window
+		switch {
+		case m.ContextLength > 0:
+			info.ContextLength = m.ContextLength
+		case m.ContextWindow > 0:
+			info.ContextLength = m.ContextWindow
+		}
+		switch {
+		case m.MaxOutputTokens > 0:
+			info.MaxOutputTokens = m.MaxOutputTokens
+		case m.TopProvider.MaxCompletionTokens != nil && *m.TopProvider.MaxCompletionTokens > 0:
+			info.MaxOutputTokens = *m.TopProvider.MaxCompletionTokens
+		}
+		models = append(models, info)
 	}
 	return models, nil
 }

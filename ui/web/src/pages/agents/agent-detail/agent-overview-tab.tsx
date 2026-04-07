@@ -36,7 +36,7 @@ export function AgentOverviewTab({ agent, onUpdate, heartbeat, onManageCodexPool
   // Model & Budget
   const [provider, setProvider] = useState(agent.provider);
   const [model, setModel] = useState(agent.model);
-  const [contextWindow, setContextWindow] = useState(agent.context_window || 200000);
+  const [contextWindow, setContextWindow] = useState(agent.context_window);
   const [maxToolIterations, setMaxToolIterations] = useState(agent.max_tool_iterations || 20);
   const [budgetDollars, setBudgetDollars] = useState(
     agent.budget_monthly_cents ? String(agent.budget_monthly_cents / 100) : "",

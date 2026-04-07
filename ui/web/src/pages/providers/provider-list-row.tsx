@@ -1,4 +1,4 @@
-import { Cpu, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import type { ChatGPTOAuthProviderQuota } from "./hooks/use-chatgpt-oauth-provid
 import type { ChatGPTOAuthAvailability } from "./hooks/use-chatgpt-oauth-provider-statuses";
 import type { ProviderData } from "./hooks/use-providers";
 import { PROVIDER_TYPE_BADGE, ProviderApiKeyBadge } from "./provider-utils";
+import { ProviderLogo } from "@/components/shared/provider-logo";
 
 interface ProviderOAuthPoolSummary {
   availability: ChatGPTOAuthAvailability;
@@ -120,7 +121,7 @@ export function ProviderListRow({
           oauthPool?.role === "member" && "bg-sky-500/12 text-sky-700 dark:text-sky-300",
         )}
       >
-        <Cpu className="h-4 w-4" />
+        <ProviderLogo providerType={provider.provider_type} />
       </div>
 
       <div className="min-w-0 flex-1 space-y-0.5">

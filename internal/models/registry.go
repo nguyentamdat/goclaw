@@ -14,12 +14,12 @@ import (
 )
 
 const (
-	openRouterModelsURL = "https://openrouter.ai/api/v1/models"
-	defaultCacheTTL     = 24 * time.Hour
-	fetchTimeout        = 30 * time.Second
+	modelsDevURL    = "https://models.dev/api.json"
+	defaultCacheTTL = 24 * time.Hour
+	fetchTimeout    = 30 * time.Second
 )
 
-// Registry provides model capability lookups backed by the OpenRouter model registry.
+// Registry provides model capability lookups backed by the models.dev registry.
 // Results are cached in memory with a configurable TTL.
 type Registry struct {
 	mu        sync.RWMutex
@@ -57,13 +57,43 @@ func (r *Registry) Lookup(model string) *ModelSpec {
 	return nil
 }
 
+// Register adds or updates a model spec in the cache.
+// Used by provider model fetchers to cache metadata from provider APIs.
+func (r *Registry) Register(spec *ModelSpec) {
+	if spec == nil || spec.ID == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	normalized := strings.ToLower(strings.TrimSpace(spec.ID))
+	existing, ok := r.specs[normalized]
+	if ok {
+		// Merge: only fill in missing fields
+		if existing.ContextLength == 0 && spec.ContextLength > 0 {
+			existing.ContextLength = spec.ContextLength
+		}
+		if existing.MaxOutputTokens == 0 && spec.MaxOutputTokens > 0 {
+			existing.MaxOutputTokens = spec.MaxOutputTokens
+		}
+	} else {
+		r.specs[normalized] = spec
+		// Register alias (last segment)
+		if idx := strings.LastIndex(normalized, "/"); idx >= 0 {
+			shortName := normalized[idx+1:]
+			if _, exists := r.aliases[shortName]; !exists {
+				r.aliases[shortName] = normalized
+			}
+		}
+	}
+}
+
 func (r *Registry) lookupLocked(model string) *ModelSpec {
 	normalized := strings.ToLower(strings.TrimSpace(model))
 	if normalized == "" {
 		return nil
 	}
 
-	// 1. Exact match on full ID (e.g. "anthropic/claude-sonnet-4-5-20250929")
+	// 1. Exact match on full ID (e.g. "accounts/fireworks/routers/kimi-k2p5-turbo")
 	if spec, ok := r.specs[normalized]; ok {
 		return spec
 	}
@@ -126,41 +156,46 @@ func (r *Registry) Count() int {
 	return len(r.specs)
 }
 
-// Refresh fetches the model registry from OpenRouter and updates the cache.
+// Refresh fetches the model registry from models.dev and updates the cache.
 // Safe to call concurrently — only one fetch runs at a time.
 func (r *Registry) Refresh(ctx context.Context) error {
-	models, err := r.fetchModels(ctx)
+	providers, err := r.fetchModelsDev(ctx)
 	if err != nil {
 		return fmt.Errorf("models.registry: fetch failed: %w", err)
 	}
 
-	specs := make(map[string]*ModelSpec, len(models))
-	aliases := make(map[string]string, len(models)*2)
+	specs := make(map[string]*ModelSpec, 4096)
+	aliases := make(map[string]string, 8192)
 
-	for _, m := range models {
-		id := strings.ToLower(m.ID)
-		spec := &ModelSpec{
-			ID:            m.ID,
-			Name:          m.Name,
-			ContextLength: int(m.ContextLength),
-		}
+	for _, p := range providers {
+		for _, m := range p.Models {
+			id := strings.ToLower(m.ID)
+			if _, exists := specs[id]; exists {
+				continue // first provider wins for duplicate model IDs
+			}
 
-		if m.TopProvider.MaxCompletionTokens != nil {
-			spec.MaxOutputTokens = int(*m.TopProvider.MaxCompletionTokens)
-		}
+			spec := &ModelSpec{
+				ID:              m.ID,
+				Name:            m.Name,
+				SupportsTools:   m.ToolCall,
+				SupportsReasoning: m.Reasoning,
+				SupportsImages:  slices.Contains(m.Modalities.Input, "image"),
+			}
+			if m.Limit.Context > 0 {
+				spec.ContextLength = m.Limit.Context
+			}
+			if m.Limit.Output > 0 {
+				spec.MaxOutputTokens = m.Limit.Output
+			}
 
-		spec.SupportsTools = slices.Contains(m.SupportedParams, "tools")
-		spec.SupportsReasoning = slices.Contains(m.SupportedParams, "reasoning")
-		spec.SupportsImages = slices.Contains(m.Architecture.InputModalities, "image")
+			specs[id] = spec
 
-		specs[id] = spec
-
-		// Register alias: model name without provider prefix
-		if idx := strings.LastIndex(id, "/"); idx >= 0 {
-			shortName := id[idx+1:]
-			// Only register if unambiguous (first wins)
-			if _, exists := aliases[shortName]; !exists {
-				aliases[shortName] = id
+			// Register alias: last path segment (for multi-segment IDs like accounts/fireworks/routers/kimi-k2p5-turbo)
+			if idx := strings.LastIndex(id, "/"); idx >= 0 {
+				shortName := id[idx+1:]
+				if _, exists := aliases[shortName]; !exists {
+					aliases[shortName] = id
+				}
 			}
 		}
 	}
@@ -208,34 +243,32 @@ func (r *Registry) StartBackgroundRefresh(ctx context.Context) {
 	}()
 }
 
-// --- OpenRouter API types ---
+// --- models.dev API types ---
 
-type openRouterResponse struct {
-	Data []openRouterModel `json:"data"`
+type modelsDevProvider struct {
+	ID     string                    `json:"id"`
+	Name   string                    `json:"name"`
+	Models map[string]modelsDevModel `json:"models"`
 }
 
-type openRouterModel struct {
-	ID              string              `json:"id"`
-	Name            string              `json:"name"`
-	ContextLength   int64               `json:"context_length"`
-	Architecture    openRouterArch      `json:"architecture"`
-	TopProvider     openRouterProvider   `json:"top_provider"`
-	SupportedParams []string            `json:"supported_parameters"`
+type modelsDevModel struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Family    string `json:"family"`
+	Reasoning bool   `json:"reasoning"`
+	ToolCall  bool   `json:"tool_call"`
+	Limit     struct {
+		Context int `json:"context"`
+		Output  int `json:"output"`
+	} `json:"limit"`
+	Modalities struct {
+		Input  []string `json:"input"`
+		Output []string `json:"output"`
+	} `json:"modalities"`
 }
 
-type openRouterArch struct {
-	InputModalities  []string `json:"input_modalities"`
-	OutputModalities []string `json:"output_modalities"`
-	Tokenizer        string   `json:"tokenizer"`
-}
-
-type openRouterProvider struct {
-	ContextLength       int64  `json:"context_length"`
-	MaxCompletionTokens *int64 `json:"max_completion_tokens"`
-}
-
-func (r *Registry) fetchModels(ctx context.Context) ([]openRouterModel, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, openRouterModelsURL, nil)
+func (r *Registry) fetchModelsDev(ctx context.Context) ([]modelsDevProvider, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsDevURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -252,10 +285,16 @@ func (r *Registry) fetchModels(ctx context.Context) ([]openRouterModel, error) {
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, body)
 	}
 
-	var result openRouterResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	// models.dev returns map[providerID]provider
+	var raw map[string]modelsDevProvider
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, fmt.Errorf("decode: %w", err)
 	}
 
-	return result.Data, nil
+	providers := make([]modelsDevProvider, 0, len(raw))
+	for id, p := range raw {
+		p.ID = id
+		providers = append(providers, p)
+	}
+	return providers, nil
 }
