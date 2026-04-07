@@ -84,10 +84,10 @@ export function ChannelsStatusView({
             {entries.map(([name, status]) => {
               const meta = getChannelStatusMeta(status, status.enabled, t);
               const checked = getChannelCheckedLabel(status, t);
-              const failureKind = getChannelFailureKindLabel(
+              const failureKind = (status.state === "failed" || status.state === "degraded") ? getChannelFailureKindLabel(
                 status.failure_kind,
                 t,
-              );
+              ) : null;
 
               return (
                 <div

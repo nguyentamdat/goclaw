@@ -37,7 +37,7 @@ export function ChannelListRow({
   const displayName = instance.display_name || instance.name;
   const supportsReauth = channelsWithAuth.has(instance.channel_type);
   const statusMeta = getChannelStatusMeta(status, instance.enabled, t);
-  const failureKind = getChannelFailureKindLabel(status?.failure_kind, t);
+  const failureKind = (status?.state === "failed" || status?.state === "degraded") ? getChannelFailureKindLabel(status?.failure_kind, t) : null;
   const checkedLabel = getChannelCheckedLabel(status, t);
   const remediation = getChannelRemediationMeta(status, supportsReauth, t);
   const summaryLine = status?.summary || statusMeta.label;
@@ -110,6 +110,7 @@ export function ChannelListRow({
               )}
             </div>
 
+            {remediation && (
             <div className="min-w-0">
               <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                 {t("list.nextStep", { defaultValue: "Next step" })}
@@ -119,6 +120,7 @@ export function ChannelListRow({
                 {nextStepHint}
               </p>
             </div>
+            )}
           </div>
         </button>
 

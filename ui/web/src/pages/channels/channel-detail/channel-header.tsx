@@ -42,7 +42,7 @@ export function ChannelHeader({
   const typeLabel =
     channelTypeLabels[instance.channel_type] || instance.channel_type;
   const statusMeta = getChannelStatusMeta(status, instance.enabled, t);
-  const failureKind = getChannelFailureKindLabel(status?.failure_kind, t);
+  const failureKind = (status?.state === "failed" || status?.state === "degraded") ? getChannelFailureKindLabel(status?.failure_kind, t) : null;
   const checkedLabel = getChannelCheckedLabel(status, t);
   const summaryLine = status?.summary || statusMeta.label;
 

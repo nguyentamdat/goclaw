@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -90,6 +91,11 @@ func (m *Manager) StartAll(ctx context.Context) error {
 
 	slog.Info("starting all channels")
 
+	var failedChannels []struct {
+		name    string
+		channel Channel
+	}
+
 	for name, channel := range m.channels {
 		slog.Info("starting channel", "channel", name)
 		if hc, ok := channel.(interface{ MarkStarting(string) }); ok {
@@ -99,13 +105,78 @@ func (m *Manager) StartAll(ctx context.Context) error {
 		if err := channel.Start(ctx); err != nil {
 			m.recordChannelStartFailureLocked(name, channel, "", err)
 			slog.Error("failed to start channel", "channel", name, "error", err)
+			failedChannels = append(failedChannels, struct {
+				name    string
+				channel Channel
+			}{name, channel})
 			continue
 		}
 		m.syncChannelHealthLocked(name, channel)
 	}
 
+	// Retry failed channels in background with exponential backoff.
+	if len(failedChannels) > 0 {
+		go m.retryFailedChannels(ctx, failedChannels)
+	}
+
 	slog.Info("all channels started")
 	return nil
+}
+
+// retryFailedChannels retries starting channels that failed on initial startup.
+// Uses exponential backoff: 5s, 10s, 20s, 40s, 60s (capped).
+func (m *Manager) retryFailedChannels(ctx context.Context, channels []struct {
+	name    string
+	channel Channel
+}) {
+	const maxRetries = 5
+	backoff := 5 * time.Second
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+
+		var remaining []struct {
+			name    string
+			channel Channel
+		}
+
+		m.mu.Lock()
+		for _, ch := range channels {
+			slog.Info("retrying channel start", "channel", ch.name, "attempt", attempt)
+			if hc, ok := ch.channel.(interface{ MarkStarting(string) }); ok {
+				hc.MarkStarting(fmt.Sprintf("Retrying (%d/%d)", attempt, maxRetries))
+			}
+			m.syncChannelHealthLocked(ch.name, ch.channel)
+			if err := ch.channel.Start(ctx); err != nil {
+				m.recordChannelStartFailureLocked(ch.name, ch.channel, "", err)
+				slog.Warn("channel start retry failed", "channel", ch.name, "attempt", attempt, "error", err)
+				remaining = append(remaining, ch)
+			} else {
+				m.syncChannelHealthLocked(ch.name, ch.channel)
+				slog.Info("channel started after retry", "channel", ch.name, "attempt", attempt)
+			}
+		}
+		m.mu.Unlock()
+
+		if len(remaining) == 0 {
+			return
+		}
+		channels = remaining
+
+		// Exponential backoff, capped at 60s.
+		backoff *= 2
+		if backoff > 60*time.Second {
+			backoff = 60 * time.Second
+		}
+	}
+
+	for _, ch := range channels {
+		slog.Error("channel failed after all retries", "channel", ch.name, "retries", maxRetries)
+	}
 }
 
 // StopAll gracefully stops all channels and the outbound dispatch loop.
