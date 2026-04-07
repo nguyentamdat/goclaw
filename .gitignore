@@ -28,6 +28,7 @@ prompt.md
 # UI Web (React SPA)
 ui/web/node_modules/
 ui/web/dist/
+internal/webui/dist/
 ui/web/.vite/
 *.tsbuildinfo
 
