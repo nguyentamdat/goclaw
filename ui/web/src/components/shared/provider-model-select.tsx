@@ -43,6 +43,8 @@ interface ProviderModelSelectProps {
   modelFilter?: string;
   /** Extra models to prepend to the dropdown (e.g. curated embedding models not returned by API). */
   extraModels?: { id: string; name: string }[];
+  /** Called when the resolved ModelInfo for the current model changes (or undefined if not found). */
+  onSelectedModelInfo?: (info: import("@/types/provider").ModelInfo | undefined) => void;
 }
 
 export function ProviderModelSelect({
@@ -64,6 +66,7 @@ export function ProviderModelSelect({
   filterEmbedding,
   modelFilter,
   extraModels,
+  onSelectedModelInfo,
 }: ProviderModelSelectProps) {
   const { t } = useTranslation("common");
   const { providers } = useProviders();
@@ -104,6 +107,17 @@ export function ProviderModelSelect({
   const selectedProviderId = selectedProvider?.id;
   const { models, loading: modelsLoading } = useProviderModels(selectedProviderId);
   const { verify, verifying, result: verifyResult, reset: resetVerify } = useProviderVerify();
+
+  // Notify parent about the selected model's info (context_length, max_output_tokens, etc.)
+  const selectedModelInfo = useMemo(
+    () => models.find((m) => m.id === model),
+    [models, model],
+  );
+  const onSelectedModelInfoRef = useRef(onSelectedModelInfo);
+  onSelectedModelInfoRef.current = onSelectedModelInfo;
+  useEffect(() => {
+    onSelectedModelInfoRef.current?.(selectedModelInfo);
+  }, [selectedModelInfo]);
 
   const hasSavedValues = savedProvider !== undefined && savedModel !== undefined;
   const llmChanged = hasSavedValues && (provider !== savedProvider || model !== savedModel);

@@ -29,6 +29,8 @@ export interface ProviderInput {
 export interface ModelInfo {
   id: string;
   name?: string;
+  context_length?: number;
+  max_output_tokens?: number;
   reasoning?: ReasoningCapability;
 }
 
