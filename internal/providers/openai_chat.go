@@ -26,6 +26,14 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req ChatRequest) (*ChatRespon
 			slog.Info("max_tokens clamped, retrying", "model", model, "limit", clampedLimit(body))
 			resp, err = RetryDo(ctx, p.retryConfig, chatFn)
 		}
+		// Fallback: some providers (vLLM, Fireworks, etc.) require stream=true
+		// when max_tokens exceeds a threshold. Transparently delegate to
+		// ChatStream with nil chunk handler — the caller gets a complete response.
+		if isStreamRequiredError(err) {
+			slog.Info("provider requires streaming, falling back to ChatStream",
+				"provider", p.name, "model", model)
+			return p.ChatStream(ctx, req, nil)
+		}
 	}
 
 	// Drop user-visible reasoning for models flagged as leakers (e.g. Kimi,

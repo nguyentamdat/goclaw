@@ -1,0 +1,80 @@
+wing: goclaw
+rooms:
+- name: options
+  description: Files from options/
+  keywords:
+  - options
+  - options
+- name: internal
+  description: Files from internal/
+  keywords:
+  - internal
+  - internal
+- name: compose.d
+  description: Files from compose.d/
+  keywords:
+  - compose.d
+  - compose.d
+- name: skills
+  description: Files from skills/
+  keywords:
+  - skills
+  - skills
+- name: pkg
+  description: Files from pkg/
+  keywords:
+  - pkg
+  - pkg
+- name: compose.options
+  description: Files from compose.options/
+  keywords:
+  - compose.options
+  - compose.options
+- name: scripts
+  description: Files from scripts/
+  keywords:
+  - scripts
+  - scripts
+- name: migrations
+  description: Files from migrations/
+  keywords:
+  - migrations
+  - migrations
+- name: frontend
+  description: Files from ui/
+  keywords:
+  - frontend
+  - ui
+- name: testing
+  description: Files from tests/
+  keywords:
+  - testing
+  - tests
+- name: cmd
+  description: Files from cmd/
+  keywords:
+  - cmd
+  - cmd
+- name: docker
+  description: Files from docker/
+  keywords:
+  - docker
+  - docker
+- name: documentation
+  description: Files from docs/
+  keywords:
+  - documentation
+  - docs
+- name: configuration
+  description: Files from config/
+  keywords:
+  - configuration
+  - config
+- name: backend
+  description: Files from models/
+  keywords:
+  - backend
+  - models
+- name: general
+  description: Files that don't fit other rooms
+  keywords: []

@@ -159,3 +159,17 @@ func clampedLimit(body map[string]any) any {
 	}
 	return body["max_tokens"]
 }
+
+// isStreamRequiredError checks if a 400 error indicates the provider
+// requires stream=true for the requested max_tokens value.
+// Common on vLLM, Fireworks, and other OpenAI-compatible backends.
+func isStreamRequiredError(err error) bool {
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) || httpErr.Status != http.StatusBadRequest {
+		return false
+	}
+	lower := strings.ToLower(httpErr.Body)
+	return strings.Contains(lower, "must have stream") ||
+		strings.Contains(lower, "stream=true") ||
+		strings.Contains(lower, "stream\":true")
+}
