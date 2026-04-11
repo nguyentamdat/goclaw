@@ -56,7 +56,7 @@ deploy-*.sh
 
 docs/technical-diaries
 docs/zuey
-plans
+plans/
 release-manifest.json
 k8s-*/*
 

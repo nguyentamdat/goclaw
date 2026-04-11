@@ -30,6 +30,7 @@ type ResolverDeps struct {
 	AgentStore     store.AgentStore
 	ProviderStore  store.ProviderStore
 	ProviderReg    *providers.Registry
+	ModelRegistry  providers.ModelRegistry // per-model context window + capabilities lookup
 	Bus            bus.EventPublisher
 	Sessions       store.SessionStore
 	Tools          *tools.Registry
@@ -116,6 +117,9 @@ type ResolverDeps struct {
 
 	// V3 domain event bus for consolidation pipeline (nil = disabled)
 	DomainBus eventbus.DomainEventBus
+
+	// Vault hook: called when a text file is uploaded by user (nil = no vault registration)
+	OnTextUploaded func(ctx context.Context, path, content string)
 }
 
 // NewManagedResolver creates a ResolverFunc that builds Loops from DB agent data.
@@ -412,6 +416,7 @@ func NewManagedResolver(deps ResolverDeps) ResolverFunc {
 			AutoInjector:          deps.AutoInjector,
 			Provider:               provider,
 			Model:                  ag.Model,
+			ModelRegistry:          deps.ModelRegistry,
 			ContextWindow:          contextWindow,
 			MaxTokens:              ag.ParseMaxTokens(),
 			MaxIterations:          maxIter,
@@ -459,6 +464,7 @@ func NewManagedResolver(deps ResolverDeps) ResolverFunc {
 			ConfigPermStore:        deps.ConfigPermStore,
 			TeamStore:              deps.TeamStore,
 			SecureCLIStore:         deps.SecureCLIStore,
+			OnTextUploaded:         deps.OnTextUploaded,
 			MediaStore:             deps.MediaStore,
 			ModelPricing:           deps.ModelPricing,
 			BudgetMonthlyCents:     derefInt(ag.BudgetMonthlyCents),
