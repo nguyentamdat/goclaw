@@ -369,7 +369,6 @@ func (h *AgentsHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	// Allowlist: only permit known agent columns to be updated.
 	// Defense-in-depth against column injection via arbitrary JSON keys.
 	allowed := filterAllowedKeys(updates, agentAllowedFields)
-	allowed["restrict_to_workspace"] = true
 
 	// If agent_key is being changed, enforce the slug format. The router
 	// cache uses `tenantID:agentKey` as its canonical key and splits on the
@@ -430,7 +429,7 @@ func (h *AgentsHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.agents.Update(r.Context(), id, allowed); err != nil {
 		slog.Error("agents.update", "id", id, "user_id", userID,
-			"tenant_id", store.TenantIDFromContext(r.Context()), "error", err)
+			"tenant_id", store.TenantIDFromContext(r.Context()), "error", err, "update_keys", getUpdateKeys(allowed))
 		writeError(w, http.StatusInternalServerError, protocol.ErrInternal, i18n.T(locale, i18n.MsgFailedToUpdate, "agent", err.Error()))
 		return
 	}
@@ -591,4 +590,14 @@ func (h *AgentsHandler) handleSyncWorkspace(w http.ResponseWriter, r *http.Reque
 	slog.Info("agents.sync_workspace: completed", "updated", updated, "total", len(agents), "workspace", newWorkspace)
 	emitAudit(h.msgBus, r, "agents.workspace_synced", "updated", strconv.Itoa(updated))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "updated": updated})
+	}
+
+// getUpdateKeys returns sorted list of keys from updates map for logging.
+func getUpdateKeys(updates map[string]any) []string {
+	keys := make([]string, 0, len(updates))
+	for k := range updates {
+		keys = append(keys, k)
+	}
+	return keys
+}
 }
