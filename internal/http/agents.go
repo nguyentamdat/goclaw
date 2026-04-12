@@ -600,4 +600,3 @@ func getUpdateKeys(updates map[string]any) []string {
 	}
 	return keys
 }
-}
