@@ -11,6 +11,7 @@ import (
 
 	"github.com/nextlevelbuilder/goclaw/internal/agent"
 	"github.com/nextlevelbuilder/goclaw/internal/bus"
+	"github.com/nextlevelbuilder/goclaw/internal/channels"
 	"github.com/nextlevelbuilder/goclaw/internal/channels/telegram/voiceguard"
 	"github.com/nextlevelbuilder/goclaw/internal/i18n"
 	"github.com/nextlevelbuilder/goclaw/internal/scheduler"
@@ -214,20 +215,10 @@ func processNormalMessage(
 
 	// Build outbound metadata for reply-to + thread routing BEFORE RegisterRun
 	// so block.reply handler can use it for routing intermediate messages.
-	outMeta := make(map[string]string)
+	outMeta := channels.CopyFinalRoutingMeta(msg.Metadata)
 	if isGroup {
 		if mid := msg.Metadata["message_id"]; mid != "" {
 			outMeta["reply_to_message_id"] = mid
-		}
-	}
-	// Channel routing keys — keep in sync with routingMetaKeys in channels/events.go.
-	for _, k := range []string{
-		tools.MetaMessageThreadID, "local_key", "placeholder_key", "group_id",
-		"feishu_reply_target_id",
-		"fb_mode", "sender_id", "page_id", "reply_to_comment_id",
-	} {
-		if v := msg.Metadata[k]; v != "" {
-			outMeta[k] = v
 		}
 	}
 
@@ -415,10 +406,19 @@ func processNormalMessage(
 				return
 			}
 			slog.Error("inbound: agent run failed", "error", outcome.Err, "channel", channel)
+			// Suppress technical error text on public-facing channels (FB, Telegram, etc.)
+			// Empty Content still triggers placeholder/typing cleanup downstream.
+			errContent := formatAgentError(outcome.Err)
+			if deps.ChannelMgr != nil {
+				if ct := deps.ChannelMgr.ChannelTypeForName(channel); isExternalChannel(ct) {
+					slog.Info("inbound: suppressed error for external channel", "channel", channel, "type", ct)
+					errContent = ""
+				}
+			}
 			deps.MsgBus.PublishOutbound(bus.OutboundMessage{
 				Channel:  channel,
 				ChatID:   chatID,
-				Content:  formatAgentError(outcome.Err),
+				Content:  errContent,
 				Metadata: meta,
 			})
 			return

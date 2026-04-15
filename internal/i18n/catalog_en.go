@@ -31,6 +31,14 @@ func init() {
 		MsgUserIDRequired:    "user_id is required",
 		MsgMsgRequired:       "message is required",
 
+		// Abort
+		MsgAbortStopped:         "run stopped",
+		MsgAbortForced:          "run force-aborted (3s grace exceeded)",
+		MsgAbortAlreadyAborting: "abort already in progress",
+		MsgAbortNotFound:        "run not found or already finished",
+		MsgAbortUnauthorized:    "not authorized to abort this run",
+		MsgAbortFailed:          "failed to abort run: %s",
+
 		// Channel instances
 		MsgInvalidChannelType: "invalid channel_type",
 		MsgInstanceNotFound:   "instance not found",
@@ -184,5 +192,15 @@ func init() {
 		MsgTenantUserNotFound:  "tenant user not found",
 		MsgTenantMismatch:      "tenant user does not belong to this tenant",
 		MsgTenantScopeRequired: "tenant scope is required for this operation",
+
+		// TTS / Voices
+		MsgTtsUnknownModel:  "unknown tts model: %s",
+		MsgVoicesListFailed: "failed to list voices: %s",
+
+		// STT
+		MsgSTTAllProvidersFailed:     "All STT providers failed",
+		MsgSTTLegacyConfigDeprecated: "Legacy STT config deprecated; migrate to builtin_tools[stt]",
+		MsgSTTWhatsappPrivacyWarning: "Enabling STT for WhatsApp breaks end-to-end encryption for voice messages sent to this agent.",
+		MsgVoiceMessageFallback:      "[Voice message]",
 	})
 }
