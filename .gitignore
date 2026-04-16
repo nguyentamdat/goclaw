@@ -89,4 +89,5 @@ compose.d/*
 /mise.*.toml
 /mise
 /.mise
+*.test
 goclaw-patched-linux-amd64

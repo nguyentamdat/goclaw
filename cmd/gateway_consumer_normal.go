@@ -233,7 +233,7 @@ func processNormalMessage(
 	blockReply := deps.ChannelMgr != nil && deps.ChannelMgr.ResolveBlockReply(msg.Channel, deps.Cfg.Gateway.BlockReply)
 	toolStatus := deps.Cfg.Gateway.ToolStatus == nil || *deps.Cfg.Gateway.ToolStatus // default true
 	if deps.ChannelMgr != nil {
-		deps.ChannelMgr.RegisterRun(runID, msg.Channel, chatIDForRun, messageID, outMeta, enableStream, blockReply, toolStatus)
+		deps.ChannelMgr.RegisterRun(runID, msg.Channel, chatIDForRun, messageID, outMeta, msg.TenantID, enableStream, blockReply, toolStatus)
 	}
 
 	// Group-aware system prompt: help the LLM adapt tone and behavior for group chats.
@@ -346,6 +346,29 @@ func processNormalMessage(
 		schedCtx = tools.WithRunKind(schedCtx, rk)
 	}
 
+	// Resolve effective sender: prefer MetaOriginSenderID when the on-wire
+	// SenderID is an internal/synthetic one (e.g. "notification:progress",
+	// "ticker:system", "system:escalation", "session_send_tool"). This lets
+	// system-initiated turns that DO have a real user behind them (because
+	// they propagated the origin via metadata) attribute actions to that user
+	// — e.g. for CheckFileWriterPermission in group chats (#915). Synthetic
+	// senders without propagation keep their on-wire value and hit F1's
+	// deny-in-group rule (safe default).
+	effectiveSenderID := msg.SenderID
+	if bus.IsInternalSender(effectiveSenderID) {
+		// Defense-in-depth: if a propagation bug ever writes a synthetic
+		// value into MetaOriginSenderID, do NOT honour it. We want only real
+		// user senders to override the on-wire synthetic.
+		if realSender := msg.Metadata[tools.MetaOriginSenderID]; realSender != "" && !bus.IsInternalSender(realSender) {
+			effectiveSenderID = realSender
+		}
+	}
+	// Role propagation: carry the RBAC role of the originating actor so
+	// permission checks during the re-ingress turn can bypass per-user
+	// grants for authenticated admins (#915). Only present when the
+	// upstream dispatch set MetaOriginRole.
+	effectiveRole := msg.Metadata[tools.MetaOriginRole]
+
 	// Schedule through main lane (per-session concurrency controlled by maxConcurrent)
 	outCh := deps.Sched.ScheduleWithOpts(schedCtx, "main", agent.RunRequest{
 		SessionKey:        sessionKey,
@@ -359,7 +382,8 @@ func processNormalMessage(
 		PeerKind:          peerKind,
 		LocalKey:          msg.Metadata["local_key"],
 		UserID:            userID,
-		SenderID:          msg.SenderID,
+		SenderID:          effectiveSenderID,
+		Role:              effectiveRole,
 		SenderName:        resolveSenderName(msg),
 		RunID:             runID,
 		Stream:            enableStream,
@@ -372,7 +396,7 @@ func processNormalMessage(
 	})
 
 	// Handle result asynchronously to not block the flush callback.
-	go func(agentKey, channel, chatID, session, rID, peerKind, inboundContent string, meta map[string]string, blockReplyEnabled bool, ptd *tools.PendingTeamDispatch) {
+	go func(agentKey, channel, chatID, session, rID, peerKind, inboundContent string, meta map[string]string, blockReplyEnabled bool, ptd *tools.PendingTeamDispatch, tenantID, agentUUID uuid.UUID, agentOtherConfig []byte) {
 		outcome := <-outCh
 
 		// Release team create lock — tasks already visible in DB, other goroutines can list.
@@ -402,6 +426,8 @@ func processNormalMessage(
 					ChatID:   chatID,
 					Content:  "",
 					Metadata: meta,
+					TenantID: tenantID,
+					AgentID:  agentUUID,
 				})
 				return
 			}
@@ -420,6 +446,8 @@ func processNormalMessage(
 				ChatID:   chatID,
 				Content:  errContent,
 				Metadata: meta,
+				TenantID: tenantID,
+				AgentID:  agentUUID,
 			})
 			return
 		}
@@ -437,6 +465,8 @@ func processNormalMessage(
 				ChatID:   chatID,
 				Content:  "",
 				Metadata: meta,
+				TenantID: tenantID,
+				AgentID:  agentUUID,
 			})
 			return
 		}
@@ -452,6 +482,8 @@ func processNormalMessage(
 				ChatID:   chatID,
 				Content:  "",
 				Metadata: meta,
+				TenantID: tenantID,
+				AgentID:  agentUUID,
 			})
 			return
 		}
@@ -467,10 +499,13 @@ func processNormalMessage(
 
 		// Publish response back to the channel
 		outMsg := bus.OutboundMessage{
-			Channel:  channel,
-			ChatID:   chatID,
-			Content:  replyContent,
-			Metadata: meta,
+			Channel:          channel,
+			ChatID:           chatID,
+			Content:          replyContent,
+			Metadata:         meta,
+			TenantID:         tenantID,
+			AgentID:          agentUUID,
+			AgentOtherConfig: agentOtherConfig,
 		}
 
 		appendMediaToOutbound(&outMsg, outcome.Result.Media)
@@ -481,5 +516,5 @@ func processNormalMessage(
 		if deps.TeamStore != nil && channel != tools.ChannelSystem && channel != tools.ChannelTeammate && channel != tools.ChannelDashboard {
 			go autoSetFollowup(ctx, deps.TeamStore, deps.AgentStore, agentKey, channel, chatID, replyContent)
 		}
-	}(agentID, msg.Channel, msg.ChatID, sessionKey, runID, peerKind, msg.Content, outMeta, blockReply, ptd)
+	}(agentID, msg.Channel, msg.ChatID, sessionKey, runID, peerKind, msg.Content, outMeta, blockReply, ptd, msg.TenantID, agentLoop.UUID(), agentLoop.OtherConfig())
 }
