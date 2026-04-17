@@ -11,7 +11,6 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/i18n"
 	"github.com/nextlevelbuilder/goclaw/internal/providers"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
-	modelslib "github.com/nextlevelbuilder/goclaw/internal/models"
 )
 
 // ModelInfo is a normalized model entry returned by the list-models endpoint.
@@ -47,7 +46,6 @@ func (h *ProvidersHandler) handleListProviderModels(w http.ResponseWriter, r *ht
 	}
 
 	respond := func(models []ModelInfo) {
-		models = h.withModelCapabilities(models)
 		writeJSON(w, http.StatusOK, ProviderModelsResponse{
 			Models:            models,
 			ReasoningDefaults: reasoningDefaultsForModels(p.Settings, models),
@@ -151,38 +149,6 @@ func withReasoningCapabilities(models []ModelInfo) []ModelInfo {
 		next := model
 		next.Reasoning = providers.LookupReasoningCapability(model.ID)
 		result = append(result, next)
-	}
-	return result
-}
-
-// withModelCapabilities enriches models with context_length and max_output_tokens from the registry.
-// Also feeds provider-sourced metadata back into the registry for future agent resolver lookups.
-func (h *ProvidersHandler) withModelCapabilities(models []ModelInfo) []ModelInfo {
-	if h.modelRegistry == nil {
-		return models
-	}
-	result := make([]ModelInfo, 0, len(models))
-	for _, m := range models {
-		spec := h.modelRegistry.Lookup(m.ID)
-		if spec != nil {
-			// Enrich from registry (OpenRouter data)
-			if m.ContextLength == 0 {
-				m.ContextLength = spec.ContextLength
-			}
-			if m.MaxOutputTokens == 0 {
-				m.MaxOutputTokens = spec.MaxOutputTokens
-			}
-		}
-		// Feed provider-sourced metadata back into registry
-		if m.ContextLength > 0 || m.MaxOutputTokens > 0 {
-			h.modelRegistry.Register(&modelslib.ModelSpec{
-				ID:              m.ID,
-				Name:            m.Name,
-				ContextLength:   m.ContextLength,
-				MaxOutputTokens: m.MaxOutputTokens,
-			})
-		}
-		result = append(result, m)
 	}
 	return result
 }
