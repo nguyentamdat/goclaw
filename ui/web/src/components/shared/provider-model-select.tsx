@@ -43,8 +43,7 @@ interface ProviderModelSelectProps {
   modelFilter?: string;
   /** Extra models to prepend to the dropdown (e.g. curated embedding models not returned by API). */
   extraModels?: { id: string; name: string }[];
-  /** Called when the resolved ModelInfo for the current model changes (or undefined if not found). */
-  onSelectedModelInfo?: (info: import("@/types/provider").ModelInfo | undefined) => void;
+  disabled?: boolean;
 }
 
 export function ProviderModelSelect({
@@ -66,7 +65,7 @@ export function ProviderModelSelect({
   filterEmbedding,
   modelFilter,
   extraModels,
-  onSelectedModelInfo,
+  disabled,
 }: ProviderModelSelectProps) {
   const { t } = useTranslation("common");
   const { providers } = useProviders();
@@ -95,10 +94,10 @@ export function ProviderModelSelect({
   // Auto-select first enabled provider when none is set (unless allowEmpty).
   // Uses ref for callback so this only re-runs when provider or providers actually change.
   useEffect(() => {
-    if (!allowEmpty && !provider && enabledProviders.length > 0) {
+    if (!disabled && !allowEmpty && !provider && enabledProviders.length > 0) {
       onProviderChangeRef.current(enabledProviders[0]!.name);
     }
-  }, [allowEmpty, provider, enabledProviders]);
+  }, [allowEmpty, disabled, provider, enabledProviders]);
 
   const selectedProvider = useMemo(
     () => enabledProviders.find((p) => p.name === provider),
@@ -107,17 +106,6 @@ export function ProviderModelSelect({
   const selectedProviderId = selectedProvider?.id;
   const { models, loading: modelsLoading } = useProviderModels(selectedProviderId);
   const { verify, verifying, result: verifyResult, reset: resetVerify } = useProviderVerify();
-
-  // Notify parent about the selected model's info (context_length, max_output_tokens, etc.)
-  const selectedModelInfo = useMemo(
-    () => models.find((m) => m.id === model),
-    [models, model],
-  );
-  const onSelectedModelInfoRef = useRef(onSelectedModelInfo);
-  onSelectedModelInfoRef.current = onSelectedModelInfo;
-  useEffect(() => {
-    onSelectedModelInfoRef.current?.(selectedModelInfo);
-  }, [selectedModelInfo]);
 
   const hasSavedValues = savedProvider !== undefined && savedModel !== undefined;
   const llmChanged = hasSavedValues && (provider !== savedProvider || model !== savedModel);
@@ -132,6 +120,7 @@ export function ProviderModelSelect({
   }, [llmChanged, verifyResult, onSaveBlockedChange]);
 
   const handleProviderChange = (v: string) => {
+    if (disabled) return;
     onProviderChange(v);
     // Only clear model when NOT in allowEmpty mode.
     // In allowEmpty mode (embedding config), both callbacks update the same
@@ -143,7 +132,7 @@ export function ProviderModelSelect({
   };
 
   const handleVerify = async () => {
-    if (!selectedProviderId || !model.trim()) return;
+    if (disabled || !selectedProviderId || !model.trim()) return;
     await verify(selectedProviderId, model.trim());
   };
 
@@ -152,7 +141,7 @@ export function ProviderModelSelect({
       <div className="grid gap-1.5">
         <InfoLabel tip={providerTip ?? t("providerTip")}>{providerLabel ?? t("provider")}</InfoLabel>
         {enabledProviders.length > 0 ? (
-          <Select value={provider || "__empty__"} onValueChange={(v) => handleProviderChange(v === "__empty__" ? "" : v)}>
+          <Select value={provider || "__empty__"} onValueChange={(v) => handleProviderChange(v === "__empty__" ? "" : v)} disabled={disabled}>
             <SelectTrigger>
               <SelectValue placeholder={providerPlaceholder ?? t("selectProvider")} />
             </SelectTrigger>
@@ -179,6 +168,7 @@ export function ProviderModelSelect({
             value={provider}
             onChange={(e) => handleProviderChange(e.target.value)}
             placeholder={t("noProvidersConfigured")}
+            disabled={disabled}
           />
         )}
       </div>
@@ -209,6 +199,7 @@ export function ProviderModelSelect({
               placeholder={modelsLoading ? t("loadingModels") : (modelPlaceholder ?? t("enterOrSelectModel"))}
               allowCustom
               customLabel={t("useCustomModel")}
+              disabled={disabled}
             />
           </div>
           {shouldShowVerify && (
@@ -217,7 +208,7 @@ export function ProviderModelSelect({
               variant="outline"
               size="sm"
               className="h-9 shrink-0 px-3"
-              disabled={!selectedProviderId || !model.trim() || verifying}
+              disabled={disabled || !selectedProviderId || !model.trim() || verifying}
               onClick={handleVerify}
             >
               {verifying ? "..." : t("check")}

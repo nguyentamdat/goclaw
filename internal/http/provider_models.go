@@ -15,11 +15,9 @@ import (
 
 // ModelInfo is a normalized model entry returned by the list-models endpoint.
 type ModelInfo struct {
-	ID              string                        `json:"id"`
-	Name            string                        `json:"name,omitempty"`
-	ContextLength   int                           `json:"context_length,omitempty"`
-	MaxOutputTokens int                           `json:"max_output_tokens,omitempty"`
-	Reasoning       *providers.ReasoningCapability `json:"reasoning,omitempty"`
+	ID        string                         `json:"id"`
+	Name      string                         `json:"name,omitempty"`
+	Reasoning *providers.ReasoningCapability `json:"reasoning,omitempty"`
 }
 
 type ProviderModelsResponse struct {
@@ -111,11 +109,8 @@ func (h *ProvidersHandler) handleListProviderModels(w http.ResponseWriter, r *ht
 		models = minimaxModels()
 	default:
 		// All other types use OpenAI-compatible /models endpoint
-		apiBase := strings.TrimRight(h.resolveAPIBase(p), "/")
-		if apiBase == "" {
-			apiBase = "https://api.openai.com/v1"
-		}
-		models, err = fetchOpenAIModels(ctx, apiBase, p.APIKey)
+		apiBase := openAIModelsAPIBase(p.ProviderType, h.resolveAPIBase(p))
+		models, err = fetchOpenAIModels(ctx, apiBase, p.APIKey, openAIModelsExtraHeaders(p.ProviderType))
 	}
 
 	if err != nil {
@@ -126,6 +121,28 @@ func (h *ProvidersHandler) handleListProviderModels(w http.ResponseWriter, r *ht
 	}
 
 	respond(withReasoningCapabilities(models))
+}
+
+func openAIModelsAPIBase(providerType, apiBase string) string {
+	base := strings.TrimRight(apiBase, "/")
+	if base != "" {
+		return base
+	}
+	switch providerType {
+	case store.ProviderKimiCoding:
+		return store.KimiCodingDefaultAPIBase
+	default:
+		return "https://api.openai.com/v1"
+	}
+}
+
+func openAIModelsExtraHeaders(providerType string) map[string]string {
+	if providerType != store.ProviderKimiCoding {
+		return nil
+	}
+	return map[string]string{
+		"User-Agent": store.KimiCodingRequiredUserAgent,
+	}
 }
 
 func reasoningDefaultsForModels(
