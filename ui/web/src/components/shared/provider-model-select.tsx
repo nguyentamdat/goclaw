@@ -15,6 +15,7 @@ import { useProviderModels } from "@/pages/providers/hooks/use-provider-models";
 import { useProviderVerify } from "@/pages/providers/hooks/use-provider-verify";
 import { getChatGPTOAuthPoolOwnership } from "@/pages/providers/provider-utils";
 import { InfoLabel } from "./info-label";
+import type { ModelInfo } from "@/types/provider";
 
 interface ProviderModelSelectProps {
   provider: string;
@@ -42,7 +43,9 @@ interface ProviderModelSelectProps {
   /** Filter model list by keyword (case-insensitive). E.g. "embed" to show only embedding models. */
   modelFilter?: string;
   /** Extra models to prepend to the dropdown (e.g. curated embedding models not returned by API). */
-  extraModels?: { id: string; name: string }[];
+  extraModels?: ModelInfo[];
+  /** Called with the selected model's metadata when it is present in the model list. */
+  onSelectedModelInfo?: (modelInfo: ModelInfo | undefined) => void;
   disabled?: boolean;
 }
 
@@ -65,6 +68,7 @@ export function ProviderModelSelect({
   filterEmbedding,
   modelFilter,
   extraModels,
+  onSelectedModelInfo,
   disabled,
 }: ProviderModelSelectProps) {
   const { t } = useTranslation("common");
@@ -106,6 +110,33 @@ export function ProviderModelSelect({
   const selectedProviderId = selectedProvider?.id;
   const { models, loading: modelsLoading } = useProviderModels(selectedProviderId);
   const { verify, verifying, result: verifyResult, reset: resetVerify } = useProviderVerify();
+
+  const availableModels = useMemo(() => {
+    let list = modelFilter
+      ? models.filter((m) => {
+          const id = m.id.toLowerCase();
+          const name = (m.name ?? "").toLowerCase();
+          const f = modelFilter.toLowerCase();
+          return id.includes(f) || name.includes(f);
+        })
+      : models;
+    // Prepend extra models, dedup by id
+    if (extraModels?.length) {
+      const apiIds = new Set(list.map((m) => m.id));
+      const extras = extraModels.filter((m) => !apiIds.has(m.id));
+      list = [...extras, ...list];
+    }
+    return list;
+  }, [extraModels, modelFilter, models]);
+
+  const selectedModelInfo = useMemo(
+    () => availableModels.find((m) => m.id === model),
+    [availableModels, model],
+  );
+
+  useEffect(() => {
+    onSelectedModelInfo?.(selectedModelInfo);
+  }, [onSelectedModelInfo, selectedModelInfo]);
 
   const hasSavedValues = savedProvider !== undefined && savedModel !== undefined;
   const llmChanged = hasSavedValues && (provider !== savedProvider || model !== savedModel);
@@ -179,23 +210,7 @@ export function ProviderModelSelect({
             <Combobox
               value={model}
               onChange={onModelChange}
-              options={(() => {
-                let list = modelFilter
-                  ? models.filter((m) => {
-                      const id = m.id.toLowerCase();
-                      const name = (m.name ?? "").toLowerCase();
-                      const f = modelFilter.toLowerCase();
-                      return id.includes(f) || name.includes(f);
-                    })
-                  : models;
-                // Prepend extra models, dedup by id
-                if (extraModels?.length) {
-                  const apiIds = new Set(list.map((m) => m.id));
-                  const extras = extraModels.filter((m) => !apiIds.has(m.id));
-                  list = [...extras, ...list];
-                }
-                return list.map((m) => ({ value: m.id, label: m.name }));
-              })()}
+              options={availableModels.map((m) => ({ value: m.id, label: m.name ?? m.id }))}
               placeholder={modelsLoading ? t("loadingModels") : (modelPlaceholder ?? t("enterOrSelectModel"))}
               allowCustom
               customLabel={t("useCustomModel")}

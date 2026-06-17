@@ -15,9 +15,11 @@ import (
 
 // ModelInfo is a normalized model entry returned by the list-models endpoint.
 type ModelInfo struct {
-	ID        string                         `json:"id"`
-	Name      string                         `json:"name,omitempty"`
-	Reasoning *providers.ReasoningCapability `json:"reasoning,omitempty"`
+	ID              string                         `json:"id"`
+	Name            string                         `json:"name,omitempty"`
+	ContextLength   int                            `json:"context_length,omitempty"`
+	MaxOutputTokens int                            `json:"max_output_tokens,omitempty"`
+	Reasoning       *providers.ReasoningCapability `json:"reasoning,omitempty"`
 }
 
 type ProviderModelsResponse struct {
