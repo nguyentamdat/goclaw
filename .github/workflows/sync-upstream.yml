@@ -27,7 +27,8 @@ jobs:
           git fetch upstream --tags --force
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git merge upstream/${{ matrix.branch }} --ff-only
+          git config merge.ours.driver true
+          git merge --no-edit upstream/${{ matrix.branch }}
           git push origin ${{ matrix.branch }}
           git push origin --tags || echo "tag push skipped (needs PAT with workflow scope)"
 
