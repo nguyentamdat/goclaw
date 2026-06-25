@@ -1,3 +1,7 @@
 # Ensure shell scripts always use LF line endings (critical for Docker builds on Windows)
 *.sh text eol=lf
 docker-entrypoint.sh text eol=lf
+
+# Keep fork release workflows local-only during upstream syncs.
+.github/workflows/release.yaml merge=ours
+.github/workflows/release-beta.yaml merge=ours
