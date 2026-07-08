@@ -61,6 +61,8 @@ export interface ChannelMemoryConfig {
   exclude_users?: string[];
   exclude_patterns?: string[];
   exclude_history_keys?: string[];
+  custom_prompt?: string;
+  group_custom_prompts?: Record<string, string>;
   min_messages: number;
   group_only: boolean;
 }
@@ -94,6 +96,7 @@ export interface ChannelMemoryProcessAllEvent {
   type: "group_completed" | "group_skipped" | "group_failed" | "final" | "error";
   channel_name?: string;
   history_key?: string;
+  group_message_count?: number;
   run?: ChannelMemoryExtractionRun;
   error?: string;
   run_count: number;
@@ -113,7 +116,9 @@ export interface ChannelMemoryItemsResponse {
 export interface ChannelMemoryGroupOption {
   channel_name: string;
   history_key: string;
+  parent_history_key?: string;
   group_title?: string;
+  parent_group_title?: string;
   message_count: number;
   last_activity: string;
   excluded: boolean;

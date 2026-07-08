@@ -407,8 +407,10 @@ func runGateway() {
 		}
 	}
 
+	var channelMemorySvc *channelmemory.Service
 	if memorySvc := makeChannelMemoryService(pgStores, domainBus, providerRegistry, usageCapSvc); memorySvc != nil {
-		cleanupChannelMemory := (&channelmemory.Worker{Service: memorySvc}).Start(context.Background())
+		channelMemorySvc = memorySvc
+		cleanupChannelMemory := (&channelmemory.Worker{Service: channelMemorySvc}).Start(context.Background())
 		defer cleanupChannelMemory()
 		slog.Info("channel memory extraction worker registered")
 	}
@@ -527,6 +529,7 @@ func runGateway() {
 		skillsLoader:     skillsLoader,
 		enrichProgress:   enrichProgress,
 		enrichWorker:     enrichWorker,
+		channelMemorySvc: channelMemorySvc,
 		workspace:        workspace,
 		dataDir:          dataDir,
 		domainBus:        domainBus,
@@ -704,6 +707,11 @@ func runGateway() {
 		// Bitrix24 channels (imbot.unregister bot cleanup).
 		channelInstancesH.SetChannelManager(channelMgr)
 	}
+	if deps.channelMemorySvc != nil {
+		deps.channelMemorySvc.ContextResolver = channelmemory.ContextResolverFunc(func(ctx context.Context, inst *store.ChannelInstanceData, group store.PendingMessageGroup) (channelmemory.ExtractionContext, error) {
+			return resolveChannelMemoryExtractionContext(ctx, channelMgr, inst, group)
+		})
+	}
 
 	// Wire channel sender + tenant checker on message tool (now that channelMgr exists)
 	if t, ok := toolsReg.Get("message"); ok {
@@ -718,6 +726,12 @@ func runGateway() {
 	if t, ok := toolsReg.Get("list_group_members"); ok {
 		if gl, ok := t.(tools.GroupMemberListerAware); ok {
 			gl.SetGroupMemberLister(channelMgr.ListGroupMembers)
+		}
+	}
+	// Wire group lister on zalo_list_groups tool
+	if t, ok := toolsReg.Get("zalo_list_groups"); ok {
+		if gl, ok := t.(tools.GroupListerAware); ok {
+			gl.SetGroupLister(channelMgr.ListGroups)
 		}
 	}
 	// Wire Telegram manager on telegram_manager tool.
@@ -750,8 +764,9 @@ func runGateway() {
 		// the one used by pg.NewPGStores → NewPGBitrixPortalStore.
 		bitrixEncKey := os.Getenv("GOCLAW_ENCRYPTION_KEY")
 		// Use the MCP-aware factory variant so channels that opt into
-		// lazy per-user credential provisioning (via mcp_server_name +
-		// mcp_base_url in their instance config) can reach the partner's
+		// lazy per-user credential provisioning (via mcp_server_id — or
+		// the legacy mcp_server_name + mcp_base_url pair — in their
+		// instance config) can reach the partner's
 		// MCPServerStore. The MCP server authenticates each onboard call
 		// via the caller-supplied Bitrix access_token (the "Bitrix24
 		// OAuth → existing mcp_user_credentials bridge" — Bitrix-specific
