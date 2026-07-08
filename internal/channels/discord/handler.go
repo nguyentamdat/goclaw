@@ -16,6 +16,7 @@ import (
 	"github.com/nextlevelbuilder/goclaw/internal/channels/media"
 	"github.com/nextlevelbuilder/goclaw/internal/channels/typing"
 	"github.com/nextlevelbuilder/goclaw/internal/store"
+	"github.com/nextlevelbuilder/goclaw/internal/systemmessages"
 	"github.com/nextlevelbuilder/goclaw/internal/tools"
 )
 
@@ -207,6 +208,7 @@ func (c *Channel) handleMessage(_ *discordgo.Session, m *discordgo.MessageCreate
 			// Collect contact even when bot is not mentioned (cache prevents DB spam).
 			if cc := c.ContactCollector(); cc != nil {
 				cc.EnsureContact(ctx, c.Type(), c.Name(), senderID, senderID, senderName, m.Author.Username, "group", "user", "", "")
+				cc.EnsureContact(ctx, c.Type(), c.Name(), channelID, "", c.resolveCachedChannelTitle(channelID), "", "group", "group", "", "")
 			}
 
 			slog.Debug("discord group message recorded (no mention)",
@@ -302,34 +304,14 @@ func (c *Channel) handleMessage(_ *discordgo.Session, m *discordgo.MessageCreate
 		}
 	}
 
-	// PATCHED: Clear AgentID so the gateway consumer's resolveAgentRoute
-	// (cmd/gateway_consumer_normal.go:40-43) matches via cfg.Bindings.
-	// The consumer checks: if msg.AgentID == "" → resolveAgentRoute(cfg, msg.Channel, msg.ChatID, msg.PeerKind)
-	// Bindings in config.json match by channel name + peer.kind + peer.id.
-	// If no binding matches, resolveAgentRoute falls back to cfg.ResolveDefaultAgentID().
-	targetAgentID := ""
-	slog.Info("discord: binding routing enabled",
-		"channel_id", channelID,
-		"channel_name", c.Name(),
-		"peer_kind", peerKind,
-	)
-
-	// Voice agent routing
-	if c.config.VoiceAgentID != "" {
-		for _, mi := range mediaList {
-			if mi.Type == media.TypeAudio || mi.Type == media.TypeVoice {
-				targetAgentID = c.config.VoiceAgentID
-				slog.Debug("discord: routing voice inbound to speaking agent",
-					"agent_id", targetAgentID, "media_type", mi.Type,
-				)
-				break
-			}
-		}
-	}
+	targetAgentID := c.targetAgentID(mediaList)
 
 	// Collect contact for processed messages (DM + group-mentioned).
 	if cc := c.ContactCollector(); cc != nil {
 		cc.EnsureContact(ctx, c.Type(), c.Name(), senderID, senderID, senderName, m.Author.Username, peerKind, "user", "", "")
+		if peerKind == "group" {
+			cc.EnsureContact(ctx, c.Type(), c.Name(), channelID, "", c.resolveCachedChannelTitle(channelID), "", "group", "group", "", "")
+		}
 	}
 
 	// Publish directly to bus (to preserve MediaFile MIME types)
@@ -350,6 +332,22 @@ func (c *Channel) handleMessage(_ *discordgo.Session, m *discordgo.MessageCreate
 	if peerKind == "group" {
 		c.GroupHistory().Clear(channelID)
 	}
+}
+
+func (c *Channel) targetAgentID(mediaList []media.MediaInfo) string {
+	targetAgentID := c.AgentID()
+	if c.config.VoiceAgentID == "" {
+		return targetAgentID
+	}
+	for _, mi := range mediaList {
+		if mi.Type == media.TypeAudio || mi.Type == media.TypeVoice {
+			slog.Debug("discord: routing voice inbound to speaking agent",
+				"agent_id", c.config.VoiceAgentID, "media_type", mi.Type,
+			)
+			return c.config.VoiceAgentID
+		}
+	}
+	return targetAgentID
 }
 
 // checkGroupPolicy evaluates the group policy for a sender, with pairing support.
@@ -404,10 +402,11 @@ func (c *Channel) sendPairingReply(ctx context.Context, senderID, channelID stri
 		return
 	}
 
-	replyText := fmt.Sprintf(
-		"GoClaw: access not configured.\n\nYour Discord user ID: %s\n\nPairing code: %s\n\nAsk the bot owner to approve with:\n  goclaw pairing approve %s",
-		senderID, code, code,
-	)
+	replyText := c.SystemMessage("", systemmessages.KeyPairingAccountRequired, systemmessages.Vars{
+		"platform":  "Discord",
+		"sender_id": senderID,
+		"code":      code,
+	})
 
 	if _, err := c.session.ChannelMessageSend(channelID, replyText); err != nil {
 		slog.Warn("failed to send discord pairing reply", "error", err)
@@ -438,4 +437,72 @@ func (c *Channel) resolveCachedChannelTitle(channelID string) string {
 		return ""
 	}
 	return channels.SanitizeDisplayName(ch.Name)
+}
+
+func (c *Channel) ResolveGroupTitle(_ context.Context, channelID string) (string, error) {
+	if title := c.resolveCachedChannelTitle(channelID); title != "" {
+		return title, nil
+	}
+	return "", fmt.Errorf("discord channel title not cached")
+}
+
+func (c *Channel) ResolveGroupTitles(ctx context.Context, channelIDs []string) (map[string]string, error) {
+	if c == nil || c.session == nil || len(channelIDs) == 0 {
+		return map[string]string{}, nil
+	}
+	remaining := make(map[string]struct{}, len(channelIDs))
+	titles := make(map[string]string, len(channelIDs))
+	for _, id := range channelIDs {
+		if id == "" {
+			continue
+		}
+		if title := c.resolveCachedChannelTitle(id); title != "" {
+			titles[id] = title
+			continue
+		}
+		remaining[id] = struct{}{}
+	}
+	if len(remaining) == 0 || c.session.State == nil {
+		return titles, nil
+	}
+
+	c.session.State.RLock()
+	guildIDs := make([]string, 0, len(c.session.State.Guilds))
+	for _, guild := range c.session.State.Guilds {
+		if guild != nil && guild.ID != "" {
+			guildIDs = append(guildIDs, guild.ID)
+		}
+	}
+	c.session.State.RUnlock()
+
+	for _, guildID := range guildIDs {
+		select {
+		case <-ctx.Done():
+			return titles, nil
+		default:
+		}
+		lookupCtx, cancel := context.WithTimeout(ctx, 750*time.Millisecond)
+		guildChannels, err := c.session.GuildChannels(guildID, discordgo.WithContext(lookupCtx))
+		cancel()
+		if err != nil {
+			slog.Debug("discord channel title batch lookup failed", "guild_id", guildID, "error", err)
+			continue
+		}
+		for _, ch := range guildChannels {
+			if ch == nil {
+				continue
+			}
+			if _, ok := remaining[ch.ID]; !ok {
+				continue
+			}
+			if title := channels.SanitizeDisplayName(ch.Name); title != "" {
+				titles[ch.ID] = title
+				delete(remaining, ch.ID)
+			}
+		}
+		if len(remaining) == 0 {
+			break
+		}
+	}
+	return titles, nil
 }

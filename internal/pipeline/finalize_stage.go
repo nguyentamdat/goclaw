@@ -109,17 +109,31 @@ func (s *FinalizeStage) Execute(ctx context.Context, state *RunState) error {
 	assistantMsg.MediaRefs = append(assistantMsg.MediaRefs, assistantImageRefs...)
 	state.Messages.AppendPending(assistantMsg)
 
+	// Surface generated images (Codex image_generation_call) on MediaResults
+	// too, so they reach RunResult.Media / outbound channel delivery — not just
+	// session history (MediaRefs were already appended to the message above).
+	for _, ref := range assistantImageRefs {
+		mr := MediaResult{Path: ref.Path, ContentType: ref.MimeType, Prompt: ref.Prompt}
+		if info, statErr := os.Stat(ref.Path); statErr == nil {
+			mr.Size = info.Size()
+		}
+		state.Tool.MediaResults = append(state.Tool.MediaResults, mr)
+	}
+
 	// 4. Flush remaining pending messages to session store
+	historyCountBeforeFlush := len(state.Messages.History())
 	pending := state.Messages.FlushPending()
+	persistablePending := persistableMessages(pending)
 	if len(pending) > 0 && s.deps.FlushMessages != nil {
-		if err := s.deps.FlushMessages(ctx, state.Input.SessionKey, persistableMessages(pending)); err != nil {
+		if err := s.deps.FlushMessages(ctx, state.Input.SessionKey, persistablePending); err != nil {
 			slog.Warn("finalize flush failed", "err", err)
 		}
 	}
 
 	// 5. Update session metadata (token usage)
 	if s.deps.UpdateMetadata != nil {
-		if err := s.deps.UpdateMetadata(ctx, state.Input.SessionKey, state.Think.TotalUsage); err != nil {
+		msgCount := historyCountBeforeFlush + len(persistablePending)
+		if err := s.deps.UpdateMetadata(ctx, state.Input.SessionKey, state.Think.TotalUsage, msgCount); err != nil {
 			slog.Warn("finalize metadata update failed", "err", err)
 		}
 	}

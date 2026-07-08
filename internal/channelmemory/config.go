@@ -10,16 +10,31 @@ import (
 var DefaultAllowedTypes = []string{"people", "projects", "decisions", "todos", "preferences", "events"}
 
 type Config struct {
-	Enabled         bool     `json:"enabled"`
-	ReviewMode      bool     `json:"review_mode"`
-	IntervalMinutes int      `json:"interval_minutes"`
-	MessageCap      int      `json:"message_cap"`
-	RetentionHours  int      `json:"retention_hours"`
-	AllowedTypes    []string `json:"allowed_types"`
-	ExcludeUsers    []string `json:"exclude_users"`
-	ExcludePatterns []string `json:"exclude_patterns"`
-	MinMessages     int      `json:"min_messages"`
-	GroupOnly       bool     `json:"group_only"`
+	Enabled            bool     `json:"enabled"`
+	ReviewMode         bool     `json:"review_mode"`
+	IntervalMinutes    int      `json:"interval_minutes"`
+	MessageCap         int      `json:"message_cap"`
+	RetentionHours     int      `json:"retention_hours"`
+	AllowedTypes       []string `json:"allowed_types"`
+	ExcludeUsers       []string `json:"exclude_users"`
+	ExcludePatterns    []string `json:"exclude_patterns"`
+	ExcludeHistoryKeys []string `json:"exclude_history_keys"`
+	MinMessages        int      `json:"min_messages"`
+	GroupOnly          bool     `json:"group_only"`
+}
+
+type ConfigPatch struct {
+	Enabled            *bool     `json:"enabled"`
+	ReviewMode         *bool     `json:"review_mode"`
+	IntervalMinutes    *int      `json:"interval_minutes"`
+	MessageCap         *int      `json:"message_cap"`
+	RetentionHours     *int      `json:"retention_hours"`
+	AllowedTypes       *[]string `json:"allowed_types"`
+	ExcludeUsers       *[]string `json:"exclude_users"`
+	ExcludePatterns    *[]string `json:"exclude_patterns"`
+	ExcludeHistoryKeys *[]string `json:"exclude_history_keys"`
+	MinMessages        *int      `json:"min_messages"`
+	GroupOnly          *bool     `json:"group_only"`
 }
 
 func DefaultConfig() Config {
@@ -55,9 +70,52 @@ func ParseConfig(raw json.RawMessage) Config {
 	cfg.AllowedTypes = normalizeAllowedTypes(in.AllowedTypes)
 	cfg.ExcludeUsers = boundedStrings(in.ExcludeUsers, 50, 255)
 	cfg.ExcludePatterns = boundedPatterns(in.ExcludePatterns, 20, 255)
+	cfg.ExcludeHistoryKeys = boundedStrings(in.ExcludeHistoryKeys, 200, 255)
 	cfg.MinMessages = clampInt(in.MinMessages, 2, 100, cfg.MinMessages)
 	cfg.GroupOnly = true
 	return cfg
+}
+
+func ApplyConfigPatch(base Config, raw []byte) (Config, error) {
+	var patch ConfigPatch
+	if err := json.Unmarshal(raw, &patch); err != nil {
+		return Config{}, err
+	}
+	cfg := base
+	if patch.Enabled != nil {
+		cfg.Enabled = *patch.Enabled
+	}
+	if patch.ReviewMode != nil {
+		cfg.ReviewMode = *patch.ReviewMode
+	}
+	if patch.IntervalMinutes != nil {
+		cfg.IntervalMinutes = *patch.IntervalMinutes
+	}
+	if patch.MessageCap != nil {
+		cfg.MessageCap = *patch.MessageCap
+	}
+	if patch.RetentionHours != nil {
+		cfg.RetentionHours = *patch.RetentionHours
+	}
+	if patch.AllowedTypes != nil {
+		cfg.AllowedTypes = *patch.AllowedTypes
+	}
+	if patch.ExcludeUsers != nil {
+		cfg.ExcludeUsers = *patch.ExcludeUsers
+	}
+	if patch.ExcludePatterns != nil {
+		cfg.ExcludePatterns = *patch.ExcludePatterns
+	}
+	if patch.ExcludeHistoryKeys != nil {
+		cfg.ExcludeHistoryKeys = *patch.ExcludeHistoryKeys
+	}
+	if patch.MinMessages != nil {
+		cfg.MinMessages = *patch.MinMessages
+	}
+	if patch.GroupOnly != nil {
+		cfg.GroupOnly = *patch.GroupOnly
+	}
+	return ParseConfig(MergeIntoInstanceConfig(nil, cfg)), nil
 }
 
 func MergeIntoInstanceConfig(raw json.RawMessage, cfg Config) json.RawMessage {

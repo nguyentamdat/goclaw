@@ -50,9 +50,10 @@ type Server struct {
 	// Non-handler dependencies (don't implement RegisterRoutes)
 	policyEngine   *permissions.PolicyEngine
 	pairingService store.PairingStore
-	apiKeyStore    store.APIKeyStore // for API key auth lookup
-	agentStore     store.AgentStore  // for context injection in tools_invoke
-	msgBus         *bus.MessageBus   // for MCP bridge media delivery
+	apiKeyStore    store.APIKeyStore   // for API key auth lookup
+	agentStore     store.AgentStore    // for context injection in tools_invoke
+	msgBus         *bus.MessageBus     // for MCP bridge media delivery
+	toolPolicy     *tools.PolicyEngine // for per-agent tool policy enforcement in MCP bridge
 
 	upgrader    websocket.Upgrader
 	rateLimiter *RateLimiter
@@ -80,6 +81,12 @@ type Server struct {
 // SetPostTurnProcessor sets the post-turn processor for team task dispatch in HTTP API handlers.
 func (s *Server) SetPostTurnProcessor(pt tools.PostTurnProcessor) {
 	s.postTurn = pt
+}
+
+// SetToolPolicy sets the tool policy engine used to enforce per-agent tool
+// access on the MCP bridge server (see internal/mcp/bridge_server.go).
+func (s *Server) SetToolPolicy(pe *tools.PolicyEngine) {
+	s.toolPolicy = pe
 }
 
 // NewServer creates a new gateway server.
@@ -201,7 +208,7 @@ func (s *Server) BuildMux() *http.ServeMux {
 	// prevent unauthenticated tool invocations if port is exposed.
 	if s.tools != nil {
 		if s.cfg.Gateway.Token != "" {
-			bridgeHandler := mcpbridge.NewBridgeServer(s.tools, "1.0.0", s.msgBus)
+			bridgeHandler := mcpbridge.NewBridgeServer(s.tools, "1.0.0", s.msgBus, s.toolPolicy)
 			handler := tokenAuthMiddleware(s.cfg.Gateway.Token,
 				bridgeContextMiddleware(s.cfg.Gateway.Token, s.agentStore, bridgeHandler))
 			mux.Handle("/mcp/bridge", handler)
@@ -222,7 +229,7 @@ func (s *Server) BuildMux() *http.ServeMux {
 	// browser to check the service. Install a minimal JSON index handler in that
 	// case so the root responds with something useful (and any unmatched path
 	// still returns 404, just with a JSON body).
-	if h := webui.Handler(); h != nil {
+	if h := webui.Handler(s.cfg); h != nil {
 		mux.Handle("/", h)
 		slog.Info("serving embedded web UI")
 	} else {
@@ -284,6 +291,11 @@ func bridgeContextMiddleware(gatewayToken string, agentStore store.AgentStore, n
 							// bridge otherwise injects only the agent UUID, leaving the key empty
 							// -> session tools fail with "agent context required".
 							ctx = tools.WithToolAgentKey(ctx, ag.AgentKey)
+							// Propagate the agent's per-agent tool policy so the MCP bridge
+							// handler can enforce the same policy-filtered allowlist the
+							// normal agent loop uses (see bridge_server.go makeToolHandler),
+							// instead of exposing all BridgeToolNames unconditionally.
+							ctx = tools.WithToolAgentPolicy(ctx, ag.ParseToolsConfig())
 							groups := ag.ParseShellDenyGroups()
 							if groups != nil {
 								ctx = store.WithShellDenyGroups(ctx, groups)
@@ -470,7 +482,7 @@ func (s *Server) SetTracesHandler(h *httpapi.TracesHandler) { s.handlers = appen
 func (s *Server) SetWakeHandler(h *httpapi.WakeHandler) { s.handlers = append(s.handlers, h) }
 
 // SetMCPHandler sets the MCP server management handler.
-func (s *Server) SetMCPHandler(h *httpapi.MCPHandler) { s.handlers = append(s.handlers, h) }
+func (s *Server) SetMCPHandler(h *httpapi.MCPHandler)           { s.handlers = append(s.handlers, h) }
 func (s *Server) SetMCPOAuthHandler(h *httpapi.MCPOAuthHandler) { s.handlers = append(s.handlers, h) }
 func (s *Server) SetMCPUserCredentialsHandler(h *httpapi.MCPUserCredentialsHandler) {
 	s.handlers = append(s.handlers, h)
@@ -639,6 +651,11 @@ func (s *Server) SetRuntimeLogsHandler(h *httpapi.RuntimeLogsHandler) {
 
 // SetSystemConfigsHandler sets the system configs handler.
 func (s *Server) SetSystemConfigsHandler(h *httpapi.SystemConfigsHandler) {
+	s.handlers = append(s.handlers, h)
+}
+
+// SetBrandingAssetsHandler sets the public branding asset upload/serve handler.
+func (s *Server) SetBrandingAssetsHandler(h *httpapi.BrandingAssetsHandler) {
 	s.handlers = append(s.handlers, h)
 }
 

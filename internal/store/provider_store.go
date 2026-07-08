@@ -13,6 +13,7 @@ const (
 	ProviderOpenAICompat    = "openai_compat"
 	ProviderGeminiNative    = "gemini_native"
 	ProviderOpenRouter      = "openrouter"
+	ProviderAIMLAPI         = "aimlapi"
 	ProviderGroq            = "groq"
 	ProviderDeepSeek        = "deepseek"
 	ProviderMistral         = "mistral"
@@ -72,6 +73,7 @@ var ValidProviderTypes = map[string]bool{
 	ProviderOpenAICompat:    true,
 	ProviderGeminiNative:    true,
 	ProviderOpenRouter:      true,
+	ProviderAIMLAPI:         true,
 	ProviderGroq:            true,
 	ProviderDeepSeek:        true,
 	ProviderMistral:         true,
@@ -151,6 +153,27 @@ type ProviderReasoningConfig struct {
 	Fallback string `json:"fallback,omitempty" db:"-"`
 }
 
+// OllamaSettings holds Ollama-specific configuration stored in the provider settings JSONB.
+type OllamaSettings struct {
+	// NumCtx overrides the context window size sent in options.num_ctx on every request.
+	// When nil, the gateway queries the Ollama API (/api/show) for the model's native
+	// context length, falling back to 131072 if the API is unreachable.
+	NumCtx *int `json:"num_ctx,omitempty" db:"-"`
+}
+
+// ParseOllamaSettings extracts Ollama-specific config from a provider's settings JSONB.
+// Returns nil when no relevant settings are present.
+func ParseOllamaSettings(settings json.RawMessage) *OllamaSettings {
+	if len(settings) == 0 {
+		return nil
+	}
+	var s OllamaSettings
+	if json.Unmarshal(settings, &s) != nil || s.NumCtx == nil {
+		return nil
+	}
+	return &s
+}
+
 // ChatGPTOAuthProviderSettings holds provider-level defaults for Codex account pooling.
 type ChatGPTOAuthProviderSettings struct {
 	CodexPool *ChatGPTOAuthRoutingConfig `json:"codex_pool,omitempty" db:"-"`
@@ -169,6 +192,24 @@ func ParseEmbeddingSettings(settings json.RawMessage) *EmbeddingSettings {
 		return nil
 	}
 	return s.Embedding
+}
+
+// ParseThinkingEnabled extracts the provider-level override for whether the
+// provider should be asked to emit visible reasoning/thinking tokens (e.g.
+// Ollama native "think" field, OpenAI-compat "think" for Ollama endpoints).
+// Returns nil when unset in settings JSONB, meaning "use provider default"
+// (currently off for Ollama). Explicit true/false overrides that default.
+func ParseThinkingEnabled(settings json.RawMessage) *bool {
+	if len(settings) == 0 {
+		return nil
+	}
+	var s struct {
+		ThinkingEnabled *bool `json:"thinking_enabled"`
+	}
+	if json.Unmarshal(settings, &s) != nil {
+		return nil
+	}
+	return s.ThinkingEnabled
 }
 
 // ParseChatGPTOAuthProviderSettings extracts provider-level Codex pool defaults from settings JSONB.

@@ -30,6 +30,7 @@ func TestParseConfigNormalizesBoundsAndTypes(t *testing.T) {
 			"allowed_types": ["people", "people", "unknown", "todos"],
 			"exclude_users": ["u1", ""],
 			"exclude_patterns": ["secret", "["],
+			"exclude_history_keys": ["group-1", ""],
 			"min_messages": 1,
 			"group_only": false
 		}
@@ -56,6 +57,9 @@ func TestParseConfigNormalizesBoundsAndTypes(t *testing.T) {
 	if !slices.Equal(cfg.ExcludePatterns, []string{"secret"}) {
 		t.Fatalf("exclude patterns = %v", cfg.ExcludePatterns)
 	}
+	if !slices.Equal(cfg.ExcludeHistoryKeys, []string{"group-1"}) {
+		t.Fatalf("exclude history keys = %v", cfg.ExcludeHistoryKeys)
+	}
 	if cfg.MinMessages != 2 {
 		t.Fatalf("min messages = %d, want lower bound 2", cfg.MinMessages)
 	}
@@ -77,5 +81,21 @@ func TestMergeIntoInstanceConfigPreservesSiblingFields(t *testing.T) {
 	}
 	if _, ok := root["passive_memory"]; !ok {
 		t.Fatalf("passive_memory missing: %s", raw)
+	}
+}
+
+func TestApplyConfigPatchPreservesUnspecifiedReviewMode(t *testing.T) {
+	base := DefaultConfig()
+	base.ReviewMode = true
+
+	cfg, err := ApplyConfigPatch(base, []byte(`{"enabled":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Enabled {
+		t.Fatal("enabled patch was not applied")
+	}
+	if !cfg.ReviewMode {
+		t.Fatal("partial patch must preserve review_mode")
 	}
 }

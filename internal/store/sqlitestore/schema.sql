@@ -1242,7 +1242,7 @@ CREATE TABLE IF NOT EXISTS channel_memory_extraction_items (
     episodic_id         VARCHAR(64) NOT NULL DEFAULT '',
     created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    UNIQUE (tenant_id, run_id, item_hash)
+    UNIQUE (tenant_id, channel_instance_id, item_hash)
 );
 
 CREATE INDEX IF NOT EXISTS idx_channel_memory_items_channel_status
@@ -1377,6 +1377,9 @@ CREATE TABLE IF NOT EXISTS usage_events (
     input_tokens  BIGINT NOT NULL DEFAULT 0,
     output_tokens BIGINT NOT NULL DEFAULT 0,
     total_tokens  BIGINT NOT NULL DEFAULT 0,
+    cache_read_tokens   BIGINT NOT NULL DEFAULT 0,
+    cache_create_tokens BIGINT NOT NULL DEFAULT 0,
+    thinking_tokens     BIGINT NOT NULL DEFAULT 0,
     cost_usd      NUMERIC(12,6) NOT NULL DEFAULT 0,
     duration_ms   INTEGER NOT NULL DEFAULT 0,
     call_count    INTEGER NOT NULL DEFAULT 1,
@@ -1419,6 +1422,9 @@ CREATE TABLE IF NOT EXISTS usage_event_rollups (
     input_tokens  BIGINT NOT NULL DEFAULT 0,
     output_tokens BIGINT NOT NULL DEFAULT 0,
     total_tokens  BIGINT NOT NULL DEFAULT 0,
+    cache_read_tokens   BIGINT NOT NULL DEFAULT 0,
+    cache_create_tokens BIGINT NOT NULL DEFAULT 0,
+    thinking_tokens     BIGINT NOT NULL DEFAULT 0,
     cost_usd      NUMERIC(12,6) NOT NULL DEFAULT 0,
     duration_ms   INTEGER NOT NULL DEFAULT 0,
     call_count    INTEGER NOT NULL DEFAULT 0,
