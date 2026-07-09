@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,6 +32,9 @@ func (s *PGEpisodicStore) Close() error                                   { retu
 func (s *PGEpisodicStore) Create(ctx context.Context, ep *store.EpisodicSummary) error {
 	id := uuid.Must(uuid.NewV7())
 	ep.ID = id
+	if ep.L0Abstract == "" {
+		ep.L0Abstract = fallbackEpisodicL0(ep.Summary)
+	}
 
 	topics := pq.Array(ep.KeyTopics)
 	now := time.Now().UTC()
@@ -61,6 +65,15 @@ func (s *PGEpisodicStore) Create(ctx context.Context, ep *store.EpisodicSummary)
 	}
 	ep.CreatedAt = now
 	return nil
+}
+
+func fallbackEpisodicL0(summary string) string {
+	const maxRunes = 500
+	runes := []rune(summary)
+	if len(runes) <= maxRunes {
+		return summary
+	}
+	return string(runes[:maxRunes])
 }
 
 // Get retrieves an episodic summary by ID.
@@ -137,15 +150,31 @@ func (s *PGEpisodicStore) Search(ctx context.Context, query, agentID, userID str
 		tw = 0.4
 	}
 
+	query = strings.TrimSpace(query)
+	if isEpisodicListQuery(query) {
+		merged := s.recentSearch(ctx, agentID, userID, maxResults, opts)
+		results := make([]store.EpisodicSearchResult, 0, len(merged))
+		for _, m := range merged {
+			if opts.MinScore > 0 && m.score < opts.MinScore {
+				continue
+			}
+			results = append(results, store.EpisodicSearchResult{
+				EpisodicID: m.id, L0Abstract: m.l0, KeyTopics: m.keyTopics, Score: m.score,
+				CreatedAt: m.createdAt, ExpiresAt: m.expiresAt, SessionKey: m.sessionKey,
+			})
+		}
+		return results, nil
+	}
+
 	// FTS search
-	ftsResults := s.ftsSearch(ctx, query, agentID, userID, maxResults*2)
+	ftsResults := s.ftsSearch(ctx, query, agentID, userID, maxResults*2, opts)
 
 	// Vector search (if embedding provider available)
 	var vecResults []episodicScored
 	if s.embProvider != nil {
 		vecs, err := s.embProvider.Embed(ctx, []string{query})
 		if err == nil && len(vecs) > 0 {
-			vecResults = s.vectorSearch(ctx, vecs[0], agentID, userID, maxResults*2)
+			vecResults = s.vectorSearch(ctx, vecs[0], agentID, userID, maxResults*2, opts)
 		}
 	}
 
@@ -163,8 +192,8 @@ func (s *PGEpisodicStore) Search(ctx context.Context, query, agentID, userID str
 			continue
 		}
 		results = append(results, store.EpisodicSearchResult{
-			EpisodicID: m.id, L0Abstract: m.l0, Score: m.score,
-			CreatedAt: m.createdAt, SessionKey: m.sessionKey,
+			EpisodicID: m.id, L0Abstract: m.l0, KeyTopics: m.keyTopics, Score: m.score,
+			CreatedAt: m.createdAt, ExpiresAt: m.expiresAt, SessionKey: m.sessionKey,
 		})
 	}
 	return results, nil
