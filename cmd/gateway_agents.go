@@ -52,8 +52,10 @@ func resolveEmbeddingProvider(
 		}
 	}
 
-	// 2. Auto-detect: scan DB providers for first with settings.embedding.enabled
-	allProviders, err := providerStore.ListAllProviders(context.Background())
+	// 2. Auto-detect only from the master tenant. The selected provider receives
+	// cross-tenant semantic content during startup maintenance, so a tenant-owned
+	// endpoint must never be selected for this process-wide responsibility.
+	allProviders, err := providerStore.ListProviders(masterCtx)
 	if err != nil {
 		slog.Warn("failed to list providers for embedding auto-detect", "error", err)
 		return nil
@@ -211,6 +213,7 @@ func setupSubagents(providerReg *providers.Registry, cfg *config.Config, msgBus 
 
 	manager := tools.NewSubagentManager(provider, providerReg, agentCfg.Model, msgBus, toolsFactory, subCfg)
 	manager.SetUsageCapService(usageCapSvc)
+	manager.SetAgentBudget(agentCfg.ContextWindow, agentCfg.MaxTokens)
 	return manager
 }
 

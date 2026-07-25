@@ -93,9 +93,9 @@ type pipelineCallbackSet struct {
 	checkReadOnly      func(state *pipeline.RunState) (*providers.Message, bool)
 	sanitizeContent    func(string) string
 	flushMessages      func(ctx context.Context, sessionKey string, msgs []providers.Message) error
-	updateMetadata     func(ctx context.Context, sessionKey string, usage providers.Usage, msgCount int) error
+	updateMetadata     func(ctx context.Context, sessionKey string, usage, lastUsage providers.Usage, msgCount int) error
 	bootstrapCleanup   func(ctx context.Context, state *pipeline.RunState) error
-	maybeSummarize     func(ctx context.Context, sessionKey string)
+	maybeSummarize     func(ctx context.Context, sessionKey string, midLoopCompacted bool)
 }
 
 func (l *Loop) makeResolveWorkspace(req *RunRequest) func(ctx context.Context, input *pipeline.RunInput) (*workspace.WorkspaceContext, error) {
@@ -713,14 +713,21 @@ func (l *Loop) makeFlushMessages(req *RunRequest) func(ctx context.Context, sess
 	}
 }
 
-func (l *Loop) makeUpdateMetadata(req *RunRequest) func(ctx context.Context, sessionKey string, usage providers.Usage, msgCount int) error {
-	return func(ctx context.Context, sessionKey string, usage providers.Usage, msgCount int) error {
+func (l *Loop) makeUpdateMetadata(req *RunRequest) func(ctx context.Context, sessionKey string, usage, lastUsage providers.Usage, msgCount int) error {
+	return func(ctx context.Context, sessionKey string, usage, lastUsage providers.Usage, msgCount int) error {
 		l.sessions.UpdateMetadata(ctx, sessionKey, l.model, l.provider.Name(), req.Channel)
 		l.sessions.AccumulateTokens(ctx, sessionKey, int64(usage.PromptTokens), int64(usage.CompletionTokens))
 		// Persist session to DB (matching v2 finalizeRun behavior).
 		// FlushMessages already ran, so all pending messages are in the cache.
-		if usage.PromptTokens > 0 {
-			l.sessions.SetLastPromptTokens(ctx, sessionKey, usage.PromptTokens, msgCount)
+		// Calibration uses the FINAL iteration's context size, NOT the
+		// run-cumulative total — the total sums every think→act→observe
+		// iteration and inflated the sessions "context used" display and
+		// compaction decisions by the iteration count.
+		// Current context = final prompt (incl. cached segments) + final output:
+		// the last reply joins history, so it occupies the next request's prompt.
+		// This matches msgCount, which already counts the flushed reply.
+		if lastCtx := lastUsage.ContextTokens(); lastCtx > 0 {
+			l.sessions.SetLastPromptTokens(ctx, sessionKey, lastCtx+lastUsage.CompletionTokens, msgCount)
 		}
 		l.sessions.Save(ctx, sessionKey)
 		return nil
@@ -752,13 +759,25 @@ func (l *Loop) makeBootstrapCleanup() func(ctx context.Context, state *pipeline.
 }
 
 func (l *Loop) reserveLLMUsage(ctx context.Context, req *RunRequest, state *pipeline.RunState, chatReq providers.ChatRequest, attempt string) (*usagecaps.Reservation, error) {
-	if l.usageCaps == nil || state.Provider == nil {
-		return nil, nil
+	providerName := ""
+	if state.Provider != nil {
+		providerName = state.Provider.Name()
 	}
-	return l.reserveLLMUsageFor(ctx, req, state.Iteration, chatReq, attempt, state.Provider.Name(), state.Model)
+	// reserveLLMUsageFor runs the mandatory hard-ceiling guard before any
+	// reservation or transport, so the non-fallback path is guarded here even
+	// when usage caps are disabled (Lite runtime).
+	return l.reserveLLMUsageFor(ctx, req, state.Iteration, chatReq, attempt, providerName, state.Model)
 }
 
 func (l *Loop) reserveLLMUsageFor(ctx context.Context, req *RunRequest, iteration int, chatReq providers.ChatRequest, attempt, providerName, model string) (*usagecaps.Reservation, error) {
+	// Mandatory final hard-ceiling guard for the concrete request that is about
+	// to be sent, after all directive/retry/reasoning mutations. This is the
+	// shared pre-transport chokepoint for BOTH the fallback candidate path and
+	// the non-fallback path (via reserveLLMUsage), and for every retry attempt.
+	// It runs regardless of usage-cap configuration so the ceiling holds on Lite.
+	if guardErr := l.guardCompleteModelRequest(chatReq, providerName, model, attempt); guardErr != nil {
+		return nil, guardErr
+	}
 	if l.usageCaps == nil {
 		return nil, nil
 	}
